@@ -1,0 +1,900 @@
+---
+title: "Kelompok 8"
+author: "Ria Yunita"
+date: "2024-09-20"
+output: rmdformats::readthedown
+
+---
+
+# Input Data 
+
+## Inisialisasi Library
+
+```{r}
+library(readxl)
+library(dplyr)
+library(plotly)
+library(lmtest)
+library(car)
+library(randtests)
+library(nortest)
+library(MASS)
+library(olsrr)
+library(ggcorrplot)
+library(GGally)
+library(forecast)
+library(lares)
+library(MASS)
+library(elasticnet)
+library(caret)
+library(dplyr)
+```
+
+## Data
+
+```{r}
+regresi <- read_xlsx("D:/Semester 5/PSD/Praktikum/Tugas/data regresi.xlsx")
+str(regresi)
+```
+
+```{r}
+regresi$Kapasitas_mesin <- as.factor(regresi$Kapasitas_mesin)
+regresi$Transmisi <- as.factor(regresi$Transmisi)
+regresi$Merek <- as.factor(regresi$Merek)
+regresi$Lokasi <- as.factor(regresi$Lokasi)
+str(regresi)
+```
+
+### Cek Missing Values 
+
+```{r}
+sum(is.na(regresi))
+```
+```{r}
+regresi2 <- na.omit(regresi)
+```
+
+```{r}
+sum(is.na(regresi2))
+```
+
+### Pembuatan Kategori Umur Mobil (Lama Mobil Bekas)
+
+```{r}
+# Pastikan paket dplyr sudah terinstall
+# install.packages("dplyr")
+
+# Memuat paket dplyr
+library(dplyr)
+
+# Misalkan data Anda ada di dalam data frame bernama regresi dengan kolom "tahun"
+regresi2 <- regresi2 %>%
+  mutate(kategori_pemakaian = case_when(
+    Tahun >= 2013 & Tahun <= 2018 ~ "Umur Mobil lebih dari 5 tahun",
+    Tahun >= 2019 & Tahun <= 2024 ~ "Umur Mobil kurang dari 5 tahun",
+    TRUE ~ NA_character_ # Mengisi NA jika tidak memenuhi kondisi
+  ))
+
+# Melihat hasil
+str(regresi2)
+```
+
+### Pembuatan Kategori Lokasi
+
+```{r}
+# Misalkan data Anda ada di dalam data frame bernama regresi dengan kolom "lokasi"
+# Daftar kota-kota di Jabodetabek
+jabodetabek <- c("bekasi", "bogor", "cipayung","depok", "jakarta barat", "jakarta selatan", "jakarta timur", "jakarta utara", "tangerang", "tangerang selatan", "Tanggerang")
+
+# Menambahkan kolom kategori lokasi
+regresi2 <- regresi2 %>%
+  mutate(kategori_lokasi = case_when(
+    Lokasi %in% jabodetabek ~ "Jabodetabek",
+    TRUE ~ "Luar Jabodetabek" # Untuk semua lokasi yang tidak ada dalam jabodetabek
+  ))
+
+# Melihat hasil
+head(regresi2)
+```
+
+### Pembuatan Kategori Merek 
+
+```{r}
+Top_10_merek_mobil <- c("TOYOTA", "DAIHATSU", "HONDA","MITSUBISHI", "SUZUKI", "NISSAN", "MAZDA", "WULING", "MERCEDES", "BMW")
+
+# Menambahkan kolom kategori Merek
+regresi2 <- regresi2 %>%
+  mutate(kategori_merek = case_when(
+    Merek %in% Top_10_merek_mobil  ~ "Sepuluh Mobil Terlaris",
+    TRUE ~ "Merek Mobil dibawah Top 10 Terlaris" # Untuk semua lokasi yang tidak ada dalam jabodetabek
+  ))
+
+# Melihat hasil
+head(regresi2)
+```
+
+```{r}
+regresi3 <- regresi2[, -c(5,6,7)]
+str(regresi3)
+```
+ 
+```{r}
+regresi3$kategori_pemakaian <- as.factor(regresi3$kategori_pemakaian)
+regresi3$kategori_lokasi <- as.factor(regresi3$kategori_lokasi)
+regresi3$kategori_merek <- as.factor(regresi3$kategori_merek)
+str(regresi3)
+```
+# Eksplorasi 
+
+```{r}
+# Menambahkan pengaturan skala pada sumbu y dan x
+interactive.plot <- ggplot(regresi3) +
+  geom_point(aes(x = Kilometer, y = harga_mobil), color = "coral", shape = 8, size = 1) +
+  geom_smooth(aes(x = Kilometer, y = harga_mobil), method = "lm", se = FALSE, color = "cornsilk3") +
+  ggtitle("Harga mobil Kilometer") +
+  ylab("Harga mobil") +
+  xlab("Kilometer") + 
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  scale_y_continuous(breaks = seq(0, max(regresi3$harga_mobil), by = 100000000)) + # Rentang setiap 100 juta
+  scale_x_continuous(breaks = seq(0, max(regresi3$Kilometer), by = 50000)) # Rentang setiap 50 ribu
+
+# Membuat plot interaktif dengan ggplotly
+ggplotly(interactive.plot)
+```
+
+```{r}
+cor(regresi3$harga_mobil, regresi3$Kilometer)
+```
+Berdasarkan scatter plot diatas, hubungan antara peubah harga mobil dengan kilometer kurang linear dengan ada beberapa amatan yang posisinya jauh dari amatan yang lain. Selain itu, nilai korelasi antara peubah harga mobil dan kilometer juga kecil dan memiliki nilai hubungan yang negatif. 
+
+# Regresi OLS
+
+## Pembuatan Referensi peubah Dummy 
+
+```{r}
+## Peubah Dummy dengan referensi peubah Kapasitas Mesin 1501- 2000 cc
+regresi3$Kapasitas_mesin <- relevel(regresi3$Kapasitas_mesin, ref = "1501-2000 cc")
+## Peubah Dummy dengan referensi peubah Transmisi otomatis
+regresi3$Transmisi <- relevel(regresi3$Transmisi, ref = "otomatis")
+## Peubah Dummy dengan referensi peubah kategori pemakaian <= 5 tahun 
+regresi3$kategori_pemakaian <- relevel(regresi3$kategori_pemakaian, ref = "Umur Mobil kurang dari 5 tahun")
+## Peubah Dummy dengan referensi peubah kategori lokasi Jabodetabek 
+regresi3$kategori_lokasi <- relevel(regresi3$kategori_lokasi, ref = "Jabodetabek")
+## Peubah Dummy dengan referensi peubah kategori merek Top 10 Mobil Terlaris
+regresi3$kategori_merek <- relevel(regresi3$kategori_merek, ref = "Sepuluh Mobil Terlaris")
+```
+
+## Pembuatan Model Regresi 
+
+### Model Awal 
+
+```{r}
+model <- lm(harga_mobil ~ Kilometer + Kapasitas_mesin + Transmisi + kategori_pemakaian +kategori_lokasi + kategori_merek , data= regresi3)
+summary(model)
+``` 
+$$
+\hat Y = 3.752 \times 10^{8}  -5.734\times 10^{2}X -7.259\times 10^{7}Ei_1 + 5.743\times 10^{8}Ei_2 -1.671\times 10^{8}Ei_3 +3.587\times 10^{8}Ei_4 -5.008\times 10^{7}T  -4.396\times 10^{7}M + 9.263\times 10^{6}L + 7.050\times 10^{7}K 
+$$
+
+### Keterangan  
+
+*Harga Mobil = Y*\
+*Kilometer = X*\
+*Kapasitas Mesin = E*\
+*Transmisi = T*\ 
+*Kategori Lama Pemakaian Mobil = M*\ 
+*Kategori Lokasi = L*\
+*Kategori Merek = K*\
+
+*dengan :*\
+*E (Peubah Referensi Kapasitas Mesin 1501-200cc)*\ 
+*Ei1 = Kapasitas Mesin 1001-1500 cc*\
+*Ei2 = Kapasitas Mesin 2001-3000cc*\
+*Ei3 =  Kapasitas Mesin Dibawah 1000 cc*\
+*Ei4 = Kapasitas Mesin Diatas 3000 cc*\
+*T (Peubah Referensi Transmisi Otomatis*\
+*M (Peubah Referensinya lama pemakaian baru (kurang dari 5 tahun)*\ 
+*L (Peubah Referensinya Jabodetabek)*\ 
+*K(Peubah Refrensinya Sepuluh Merek Mobil Terlaris)*\
+
+# Pengecekkan Pencilan, Leverage, dan Amatan Berpengaruh 
+
+## Perhitungan ri, ci, Hi, DFFITSi
+
+```{r}
+index <- c(1:1189)
+ri <- studres(model)
+ci <- cooks.distance(model)
+DFFITSi <- dffits(model)
+hi <- ols_hadi(model)
+hii <- hatvalues(model)
+hasil <- data.frame(index,ri,ci,DFFITSi,hi,hii); round(hasil,4)
+```
+## Pencilan atau Outlier
+
+```{r}
+for (i in 1:dim(hasil)[1]){
+  absri <- abs(hasil$ri)
+  pencilan <- which(absri > 2)
+}
+pencilan
+```
+
+Berdasarkan hasil tersebut, terdapat sebanyak 48 pencilan dalam model regresi di atas 
+
+## Titik Leverage
+
+```{r}
+titik_leverage <- vector("list", dim(hasil)[1])
+for (i in 1:dim(hasil)[1]) {
+  cutoff <- 2 * 6 / 1189
+  titik_leverage[[i]] <- which(hii > cutoff)
+}
+leverages <- unlist(titik_leverage)
+titik_leverage <- sort(unique(leverages))
+titik_leverage
+```
+Berdasarkan hasil tersebut terdapat 97 titik leverage dalam model regresi tersebut
+
+## Amatan Berpengaruh
+
+```{r}
+amatan_berpengaruh <- vector("list", dim(hasil)[1])
+for (i in 1:dim(hasil)[1]) {
+  cutoff <- 2 * sqrt((6 / 1189))
+  amatan_berpengaruh[[i]] <- which(abs(DFFITSi) > cutoff)
+}
+berpengaruh <- unlist(amatan_berpengaruh)
+amatan_berpengaruh <- sort(unique(berpengaruh))
+amatan_berpengaruh
+```
+Dari 48 Pencilan dan 97 Titik Leverage, terdapat 93 amatan berpengaruh yang terdiri dari pencilan dan titik leverage. 
+
+## Plot Titik Leverage dan Pencilan
+
+```{r}
+ols_plot_resid_lev(model)
+```
+## Pembersihan Outliers 
+
+## Penanganan Pencilan dan Leverage dengan Menghapus Pencilan 
+
+```{r}
+# Definisikan baris yang termasuk dalam masing-masing kategori
+pencilan <- c(2, 18, 152, 222, 253, 260, 297, 472, 473, 475, 486, 487, 489, 490, 492, 506, 543, 550, 591, 606, 633, 643, 684, 685, 686, 688, 689, 690, 692, 693, 694, 695, 698, 699, 701, 754, 802, 810, 812, 819, 823, 923, 924, 1165, 1166, 1168, 1176, 1178)
+leverage <- c(3, 9, 10, 15, 109, 119, 133, 226, 235, 237, 254, 257, 263, 264, 266, 277, 281, 292, 294, 295, 312, 317, 325, 372, 387, 469, 471, 474, 486, 489, 490, 506, 512, 516, 518, 530, 535, 550, 551, 615, 625, 633, 644, 649, 683, 684, 685, 686, 687, 688, 689, 690, 691, 692, 693, 694, 695, 696, 697, 698, 699, 700, 701, 702, 715, 761, 771, 781, 782, 812, 818, 825, 829, 854, 856, 859, 860, 873, 876, 878, 883, 885, 886, 917, 923, 924, 955, 1004, 1028, 1060, 1100, 1104, 1140, 1154, 1155, 1160, 1170)
+amatan_berpengaruh <- c(2, 3, 9, 15, 18, 67, 133, 152, 222, 235, 237, 253, 257, 260, 266, 281, 294, 295, 297, 312, 317, 372, 387, 469, 471, 472, 473, 474, 475, 486, 487, 489, 490, 492, 506, 512, 516, 518, 529, 530, 535, 543, 550, 551, 591, 606, 625, 633, 649, 683, 684, 685, 686, 688, 689, 690, 691, 692, 693, 694, 695, 696, 697, 698, 699, 701, 702, 715, 754, 764, 781, 782, 802, 810, 812, 819, 823, 825, 923, 924, 1014, 1031, 1104, 1108, 1140, 1154, 1165, 1166, 1167, 1168, 1170, 1176, 1178)
+
+# Gabungkan baris yang termasuk pencilan atau leverage
+pencilan_leverage <- union(pencilan, leverage)
+
+# Baris yang termasuk pencilan atau leverage, namun bukan amatan berpengaruh
+hasil <- setdiff(pencilan_leverage, amatan_berpengaruh)
+
+# Tampilkan hasil
+hasil
+```
+## Hapus Pencilan dan Leverage yang bukan amatan berpengaruh 
+
+```{r}
+regresi4 <- regresi3[-c(643,10,109,119,226,254,263,264,277,292,325,615,644,687,700,761,771,818,829,854,856,859,860,873,876,878,883,885,886,917,955,1004,1028,1060,1100,1155,1160),]
+str(regresi4)
+```
+# Model Awal Setelah Penanganan Pencilan 
+
+```{r}
+model2 <- lm(harga_mobil ~ Kilometer+ Kapasitas_mesin + Transmisi + kategori_pemakaian +kategori_lokasi + kategori_merek , data= regresi4)
+summary(model2)
+```
+## Multikolinearitas
+
+```{r}
+car::vif(model2)
+```
+
+## Seleksi Peubah 
+
+```{r}
+null<-lm(harga_mobil~ 1, data=regresi4) # 1 here means the intercept 
+full<-lm(harga_mobil~., data=regresi4)
+```
+
+### Backward Selection 
+
+```{r}
+step(full, scope=list(lower=null, upper=full),data=datanew, direction='backward', trace=0)
+```
+
+## Forward Selection
+
+```{r}
+step(null, scope=list(lower=null, upper=full),data=datanew, direction='forward', trace=0)
+```
+
+
+## Stepwise Selection
+
+```{r}
+step(null, scope=list(lower=null, upper=full),data=datanew, direction='both', trace=0)
+```
+Hasil Seleksi peubah dengan metode Stepwise, backward, dan forward memiliki model yang sama. Pada hasil seleksi peubah ini peubah kategori lokasi tidak masuk ke dalam model regresi 
+
+## Model Hasil Seleksi peubah 
+
+```{r}
+model3 <- lm(formula = harga_mobil ~ Kapasitas_mesin + Kilometer + Transmisi + 
+    kategori_pemakaian + kategori_merek, data = regresi4)
+summary(model3)
+```
+```{r}
+modelbest <- lm(harga_mobil ~ Kilometer+ Kapasitas_mesin + Transmisi + kategori_pemakaian +kategori_lokasi + kategori_merek , data= regresi4)
+ols_step_best_subset(modelbest)
+```
+
+## Perbandingan AIC,BIC, dan Adj Model Sebelum Seleksi vs Sesudah Seleksi 
+
+```{r}
+hasil <- data.frame(
+  Model = c("Model Sebelum Seleksi", "Model Sesudah Seleksi"),
+  Adj_R_Squared = c(summary(model2)$adj.r.squared,
+                    summary(model3)$adj.r.squared),
+  AIC = c(ols_aic(model2), 
+          ols_aic(model3)),
+  BIC = c(BIC(model2),
+          BIC(model3))
+)
+hasil
+```
+Berdasarkan hasil tersebut, model sesudah seleksi memiliki nilai AIC dan BIC yang lebih kecil dari model sebelum seleksi sehingga Model Sesudah seleksi variabel lebih baik dan walaupun nilai Adjusted R Square nya lebih rendah.
+
+# Uji Asumsi OLS
+
+### Plot Model Asumsi 
+
+### Plot Sisaan Vs Y duga
+
+```{r}
+plot(model3,1) 
+```
+
+### Q-Q Plot 
+
+```{r}
+plot(model3,2) 
+```
+## Plot Sisaan Vs Urutan
+
+```{r}
+plot(x = 1:dim(regresi4)[1],
+     y = model3$residuals,
+     type = 'b', 
+     ylab = "Residuals",
+     xlab = "Observation")
+```
+
+
+
+### 1. Nilai Harapan Sisaan sama dengan Nol
+
+H0: Nilai harapan sisaan sama dengan nol
+H1: Nilai harapan sisaan tidak sama dengan nol
+
+```{r}
+t.test(model3$residuals,mu = 0,conf.level = 0.95)
+```
+Uji t.tes tersebut menunjukkan hasil $$p-value >\ alpha = 0.05$$ maka tak  tolak H0. Artinya Nilai harapan sisaan sama dengan nol pada taraf nyata 5% (Asumsi terpenuhi). 
+
+
+### 2. Uji Normalitas
+$H_0 :$ sisaan menyebar Normal
+$H_1 :$ sisaan tidak menyebar Normal
+
+```{r}
+shapiro.test(model3$residuals)
+```
+
+Hasil uji normalitas sisaan dengan menggunakan shapiro.test menunjukkan hasil $$p-value <\ alpha = 0.05$$ maka tolak H0. Artinya sisaan tidak menyebar normal pada taraf nyata 5% (Asumsi normalitas tidak terpenuhi).
+
+### 3. Ragam Sisaan Homogen
+$H0:var[e]=sigma^2I$ (ragam sisaan homogen)\
+$H1:var[e] \neq sigma^2I$ (ragam siaan tidak homogen)
+
+```{r}
+library(lmtest)
+bptest(model3)
+```
+Hasil uji homogenitas dengan menggunakan Breusch-Pagan test menunjukkan hasil $$p-value <\ alpha = 0.05$$ maka  tolak H0. Artinya ragam sisaan homogen pada taraf nyata 5% (Asumsi homogenitas ragam tidak terpenuhi).
+
+
+### 4. Uji Autokorelasi
+$H0:E[ei,ej]=0$ (sisaan saling bebas/tidak ada autokorelasi)\
+$H1:E[ei,ej] \neq 0$ (sisaan tidak saling bebas/ada autokorelasi)
+
+```{r}
+library(lmtest)
+bgtest(model3)
+```
+Hasil uji autokorelasi dengan menggunakan Breusch-Godfrey test  menunjukkan hasil $$p-value <\ alpha = 0.05$$ maka tolak H0. Artinya ragam sisaan homogen pada taraf nyata 5% (Asumsi homogenitas ragam tidak terpenuhi).
+
+
+# Penanganan Asumsi dengan WLS 
+
+```{r}
+weights=1/lm(abs(model3$residuals) ~ model3$fitted.values)$fitted.values^2
+model4 <- lm(harga_mobil ~ Kilometer + Kapasitas_mesin + Transmisi + kategori_pemakaian+ kategori_merek , data = regresi4,weights = weights)
+summary(model4)
+```
+$$
+\hat Y = 3.379\times 10^{8}  -2.082\times 10^{2}X -6.291\times 10^{7}Ei_1 + 5.595\times 10^{8}Ei_2 -1.501\times 10^{8}Ei_3 +2.977\times 10^{8}Ei_4 -1.899\times 10^{7}T  -4.489\times 10^{7}M + 4.917\times 10^{7}K 
+$$
+
+### Keterangan  
+
+*Harga Mobil = Y*\
+*Kilometer = X*\
+*Kapasitas Mesin = E*\
+*Transmisi = T*\ 
+*Kategori Lama Pemakaian Mobil = M*\ 
+*Kategori Merek = K*\
+
+*dengan :*\
+*E (Peubah Referensi Kapasitas Mesin 1501-200cc)*\ 
+*Ei1 = Kapasitas Mesin 1001-1500 cc*\
+*Ei2 = Kapasitas Mesin 2001-3000cc*\
+*Ei3 =  Kapasitas Mesin Dibawah 1000 cc*\
+*Ei4 = Kapasitas Mesin Diatas 3000 cc*\
+*T (Peubah Referensi Transmisi Otomatis*\
+*M (Peubah Referensinya lama pemakaian baru (kurang dari 5 tahun)*\ 
+*K(Peubah Refrensinya Sepuluh Merek Mobil Terlaris)*\
+
+## Uji Asumsi WLS 
+
+### Plot Model Asumsi 
+
+### Plot Sisaan Vs Y duga
+
+```{r}
+plot(model4,1) 
+```
+
+### Q-Q Plot 
+
+```{r}
+plot(model4,2) 
+```
+## Plot Sisaan Vs Urutan
+
+```{r}
+plot(x = 1:dim(regresi4)[1],
+     y = model4$residuals,
+     type = 'b', 
+     ylab = "Residuals",
+     xlab = "Observation")
+```
+
+
+
+### 1. Nilai Harapan Sisaan sama dengan Nol
+
+H0: Nilai harapan sisaan sama dengan nol
+H1: Nilai harapan sisaan tidak sama dengan nol
+
+```{r}
+t.test(model4$residuals,mu = 0,conf.level = 0.95)
+```
+Uji t.tes tersebut menunjukkan hasil $$p-value >\ alpha = 0.05$$ maka tak  tolak H0. Artinya Nilai harapan sisaan sama dengan nol pada taraf nyata 5% (Asumsi terpenuhi). 
+
+
+### 2. Uji Normalitas
+$H_0 :$ sisaan menyebar Normal
+$H_1 :$ sisaan tidak menyebar Normal
+
+```{r}
+shapiro.test(model4$residuals)
+```
+
+Hasil uji normalitas sisaan dengan menggunakan shapiro.test menunjukkan hasil $$p-value <\ alpha = 0.05$$ maka tolak H0. Artinya sisaan tidak menyebar normal pada taraf nyata 5% (Asumsi normalitas tidak terpenuhi).
+
+### 3. Ragam Sisaan Homogen
+$H0:var[e]=sigma^2I$ (ragam sisaan homogen)\
+$H1:var[e] \neq sigma^2I$ (ragam siaan tidak homogen)
+
+```{r}
+library(lmtest)
+bptest(model4)
+```
+Hasil uji homogenitas dengan menggunakan Breusch-Pagan test menunjukkan hasil $$p-value <\ alpha = 0.05$$ maka  tolak H0. Artinya ragam sisaan homogen pada taraf nyata 5% (Asumsi homogenitas ragam tidak terpenuhi).
+
+
+### 4. Uji Autokorelasi
+$H0:E[ei,ej]=0$ (sisaan saling bebas/tidak ada autokorelasi)\
+$H1:E[ei,ej] \neq 0$ (sisaan tidak saling bebas/ada autokorelasi)
+
+```{r}
+library(lmtest)
+bgtest(model4)
+```
+Hasil uji autokorelasi dengan menggunakan Breusch-Godfrey test  menunjukkan hasil $$p-value <\ alpha = 0.05$$ maka tolak H0. Artinya ragam sisaan homogen pada taraf nyata 5% (Asumsi homogenitas ragam tidak terpenuhi).
+
+
+# Model Akhir hasil WLS
+
+## Persamaan Model Akhir hasil WLS
+
+```{r}
+model4 <- lm(harga_mobil ~ Kilometer + Kapasitas_mesin + Transmisi + kategori_pemakaian+ kategori_merek , data = regresi4,weights = weights)
+summary(model4)
+```
+
+$$
+\hat Y = 3.379\times 10^{8}  -2.082\times 10^{2}X -6.291\times 10^{7}Ei_1 + 5.595\times 10^{8}Ei_2 -1.501\times 10^{8}Ei_3 +2.977\times 10^{8}Ei_4 -1.899\times 10^{7}T  -4.489\times 10^{7}M + 4.917\times 10^{7}K 
+$$
+
+### Keterangan  
+
+*Harga Mobil = Y*\
+*Kilometer = X*\
+*Kapasitas Mesin = E*\
+*Transmisi = T*\ 
+*Kategori Lama Pemakaian Mobil = M*\ 
+*Kategori Merek = K*\
+
+*dengan :*\
+*E (Peubah Referensi Kapasitas Mesin 1501-200cc)*\ 
+*Ei1 = Kapasitas Mesin 1001-1500 cc*\
+*Ei2 = Kapasitas Mesin 2001-3000cc*\
+*Ei3 =  Kapasitas Mesin Dibawah 1000 cc*\
+*Ei4 = Kapasitas Mesin Diatas 3000 cc*\
+*T (Peubah Referensi Transmisi Otomatis*\
+*M (Peubah Referensinya lama pemakaian baru (kurang dari 5 tahun)*\ 
+*K(Peubah Refrensinya Sepuluh Merek Mobil Terlaris)*\
+
+
+# Regresi Robust Estimasi GS
+
+## Seleksi Peubah 
+
+```{r}
+null<-lm(harga_mobil~ 1, data=regresi3) # 1 here means the intercept 
+full<-lm(harga_mobil~., data=regresi3)
+```
+
+### Backward Selection 
+
+```{r}
+step(full, scope=list(lower=null, upper=full),data=datanew, direction='backward', trace=0)
+```
+
+## Forward Selection
+
+```{r}
+step(null, scope=list(lower=null, upper=full),data=datanew, direction='forward', trace=0)
+```
+
+
+## Stepwise Selection
+
+```{r}
+step(null, scope=list(lower=null, upper=full),data=datanew, direction='both', trace=0)
+```
+Hasil Seleksi peubah menunjukkan bahwa peubah kategori merek tidak masuk ke dalam model 
+
+
+```{r}
+# Inisialisasi
+max_iter <- 1000 # batas iterasi
+tol <- 1e-6 # toleransi untuk konvergensi
+iter <- 1
+converged <- FALSE
+
+# Inisialisasi model pertama
+modelGS <- lm(harga_mobil ~ Kilometer + Kapasitas_mesin + Transmisi + kategori_pemakaian + kategori_lokasi, data=regresi3)
+
+# Simpan koefisien dan iterasi dalam data frame
+coef_history <- data.frame(matrix(ncol = length(coef(modelGS)), nrow = 0))
+colnames(coef_history) <- names(coef(modelGS))
+
+while (iter <= max_iter && !converged) {
+  # Menghitung residual
+  res <- modelGS$residuals
+  # Menghitung selisih antar galat
+  a <- diff(res)
+  
+  # Menghitung sigma_GS
+  sig_gs <- median(abs(a - median(a))) / 0.6745
+  
+  # Menghitung ui
+  u <- res / sig_gs
+  
+  # Pembobotan Tukey bisquare
+  c <- 0.9958
+  w <- ifelse(abs(u) <= c, (1 - (u / c)^2)^2, 0)
+  
+  # Model regresi dengan pembobotan
+  modelGS_new <- lm(harga_mobil ~ Kilometer + Kapasitas_mesin + Transmisi + kategori_pemakaian + kategori_lokasi, data=regresi3, weights=w)
+  
+  # Menyimpan koefisien ke dalam data frame
+  coef_history[iter, ] <- coef(modelGS_new)
+  
+  # Mengecek konvergensi
+  if (max(abs(coef(modelGS_new) - coef(modelGS))) < tol) {
+    converged <- TRUE
+    cat("Konvergensi pada iterasi:", iter, "\n")
+  }
+  
+  modelGS <- modelGS_new
+  iter <- iter + 1
+}
+
+# Menampilkan koefisien parameter pada konvergensi
+cat("Koefisien parameter pada iterasi konvergensi:\n")
+print(coef(modelGS))
+
+# Menampilkan tabel koefisien dari setiap iterasi
+cat("\nTabel Koefisien dari setiap iterasi:\n")
+print(coef_history)
+
+```
+Konvergen di iterasi ke 318
+
+```{r}
+summary(modelGS)
+```
+$$
+\hat Y = 3.29 \times 10^{8} -1.928\times 10^{2}X -1.216\times 10^{7}Ei_1 +6.178e\times 10^{8}Ei_2 -1.779\times 10^{8}Ei_3 +3.997\times 10^{8}Ei_4  -2.598\times 10^{7}T -1.995\times 10^{7}M +6.572\times 10^{6}L 
+$$
+
+## Uji Asumsi Model Regresi Robust 
+
+### 1. Nilai Harapan Sisaan sama dengan Nol
+
+H0: Nilai harapan sisaan sama dengan nol
+H1: Nilai harapan sisaan tidak sama dengan nol
+
+```{r}
+t.test(modelGS$residuals,mu = 0,conf.level = 0.95)
+```
+Uji t.tes tersebut menunjukkan hasil $$p-value >\ alpha = 0.05$$ maka tak  tolak H0. Artinya Nilai harapan sisaan sama dengan nol pada taraf nyata 5% (Asumsi terpenuhi). 
+
+
+### 2. Uji Normalitas
+$H_0 :$ sisaan menyebar Normal
+$H_1 :$ sisaan tidak menyebar Normal
+
+```{r}
+shapiro.test(modelGS$residuals)
+```
+
+Hasil uji normalitas sisaan dengan menggunakan shapiro.test menunjukkan hasil $$p-value <\ alpha = 0.05$$ maka tolak H0. Artinya sisaan tidak menyebar normal pada taraf nyata 5% (Asumsi normalitas tidak terpenuhi).
+
+### 3. Ragam Sisaan Homogen
+$H0:var[e]=sigma^2I$ (ragam sisaan homogen)\
+$H1:var[e] \neq sigma^2I$ (ragam siaan tidak homogen)
+
+```{r}
+library(lmtest)
+bptest(modelGS)
+```
+Hasil uji homogenitas dengan menggunakan Breusch-Pagan test menunjukkan hasil $$p-value <\ alpha = 0.05$$ maka  tolak H0. Artinya ragam sisaan homogen pada taraf nyata 5% (Asumsi homogenitas ragam tidak terpenuhi).
+
+### 4. Uji Autokorelasi
+$H0:E[ei,ej]=0$ (sisaan saling bebas/tidak ada autokorelasi)\
+$H1:E[ei,ej] \neq 0$ (sisaan tidak saling bebas/ada autokorelasi)
+
+```{r}
+library(lmtest)
+bgtest(modelGS)
+```
+Tidak terpenuhi 
+
+
+# Regresi Ridge 
+
+
+```{r}
+library(glmnet)
+# Memisahkan variabel independen (X) dan dependen (Y)
+x <- model.matrix(harga_mobil ~ Kilometer + Kapasitas_mesin + Transmisi + kategori_pemakaian + kategori_lokasi + kategori_merek, data = regresi3)[,-1]  # -1 untuk menghapus intercept
+y <- regresi3$harga_mobil
+```
+## Pemodelan 
+
+```{r}
+# Fit model Ridge
+ridge_model <- glmnet(x, y, alpha = 0)  # Alpha = 0 untuk Ridge
+```
+
+## Lamda Terbaik 
+
+```{r}
+# Cross-validation untuk memilih lambda optimal
+cv_ridge <- cv.glmnet(x, y, alpha = 0)
+lambda_optimal_ridge <- cv_ridge$lambda.min
+lambda_optimal_ridge
+
+# Fit ulang model menggunakan lambda optimal
+ridge_final <- glmnet(x, y, alpha = 0, lambda = lambda_optimal_ridge)
+```
+Nilai lamda optimum untuk model regresi ridge sebesar 6468883 
+
+```{r}
+# Plot hasil cross-validation
+plot(cv_ridge)
+```
+
+## Koefisiesn model Ridge 
+
+```{r}
+# Melihat koefisien untuk model dengan lambda terbaik
+ridge_coef <- coef(cv_ridge, s = lambda_optimal_ridge)
+print(ridge_coef)
+```
+$$
+\hat Y = 3.687 \times 10^{8} -5.493\times 10^{2}X -6.593\times 10^{7}Ei_1 + 5.556\times 10^{8}Ei_2 -1.568times 10^{8}Ei_3 +3.481\times 10^{8}Ei_4 -4.608\times 10^{7}T -4.266\times 10^{7}M + 6.871\times 10^{6}L + 7.009\times 10^{7}K 
+$$
+
+## Nilai kebaikan model Regresi Ridge AIC,BIC, Adjusted R Square
+
+```{r}
+# Prediksi nilai Y dari model Ridge final
+prediksi_ridge <- predict(ridge_final, newx = x)
+
+# Hitung RSS (Residual Sum of Squares)
+rss_ridge <- sum((y - prediksi_ridge)^2)
+
+# Jumlah observasi dan variabel
+n <- nrow(x)
+p_ridge <- length(coef(ridge_final)) - 1  # Jumlah prediktor aktif (selain intercept)
+
+# Menghitung AIC
+aic_ridge <- n * log(rss_ridge/n) + 2 * p_ridge
+
+# Menghitung BIC
+bic_ridge <- n * log(rss_ridge/n) + p_ridge * log(n)
+
+# Menghitung R-squared dan Adjusted R-squared
+tss <- sum((y - mean(y))^2)  # Total Sum of Squares
+r_squared_ridge <- 1 - rss_ridge/tss
+adjusted_r_squared_ridge <- 1 - (1 - r_squared_ridge) * ((n - 1) / (n - p_ridge - 1))
+
+# Output hasil
+cat("AIC Ridge: ", aic_ridge, "\n")
+cat("BIC Ridge: ", bic_ridge, "\n")
+cat("Adjusted R-Squared Ridge: ", adjusted_r_squared_ridge, "\n")
+
+```
+
+# Regresi Lasso
+
+## Pemodelan 
+
+```{r}
+# Fit model Lasso
+lasso_model <- glmnet(x, y, alpha = 1)  # Alpha = 1 untuk Lasso
+```
+
+## Lamda Optimum 
+
+```{r}
+# Cross-validation untuk memilih lambda optimal
+cv_lasso <- cv.glmnet(x, y, alpha = 1)
+lambda_optimal <- cv_lasso$lambda.min
+lambda_optimal
+```
+Nilai lamda optimum untuk model regresi ridge sebesar 202198.9 
+
+```{r}
+# Fit ulang model menggunakan lambda optimal
+lasso_final <- glmnet(x, y, alpha = 1, lambda = lambda_optimal)
+
+plot(cv_lasso)
+```
+
+## Koefisiesn model Lasso
+
+```{r}
+# Melihat koefisien untuk model dengan lambda terbaik
+lasso_coef <- coef(cv_lasso, s = lambda_optimal)
+print(lasso_coef)
+```
+$$
+\hat Y = 3.745 \times 10^{8} -5.699\times 10^{2}X -7.169\times 10^{7}Ei_1 + 5.729\times 10^{8}Ei_2 -1.661times 10^{8}Ei_3 +3.569\times 10^{8}Ei_4  -4.931\times 10^{7}T -4.357\times 10^{7}M + 8.466\times 10^{6}L + 6.980\times 10^{7}K 
+$$
+
+## Nilai kebaikan model Regresi Lasso AIC,BIC, Adjusted R Square
+
+```{r}
+library(AICcmodavg)
+
+# Prediksi nilai Y dari model Lasso final
+prediksi <- predict(lasso_final, newx = x)
+
+# Hitung RSS (Residual Sum of Squares)
+rss <- sum((y - prediksi)^2)
+
+# Jumlah observasi dan variabel
+n <- nrow(x)
+p <- length(coef(lasso_final)) - 1  # Jumlah prediktor aktif (selain intercept)
+
+# Menghitung AIC
+aic_lasso <- n * log(rss/n) + 2 * p
+
+# Menghitung BIC
+bic_lasso <- n * log(rss/n) + p * log(n)
+
+# Menghitung R-squared dan Adjusted R-squared
+tss <- sum((y - mean(y))^2)  # Total Sum of Squares
+r_squared <- 1 - rss/tss
+adjusted_r_squared_lasso <- 1 - (1 - r_squared) * ((n - 1) / (n - p - 1))
+
+# Output hasil
+cat("AIC: ", aic_lasso, "\n")
+cat("BIC: ", bic_lasso, "\n")
+cat("Adjusted R-Squared: ", adjusted_r_squared_lasso, "\n")
+```
+
+# Perbandingan Regresi WLS, Lasso, dan Ridge
+
+
+```{r}
+Perbandingan <- data.frame(
+  Model = c("Model Regresi WLS", "Model Robust GS","Model Lasso", "Model Ridge"),
+  Adj_R_Squared = c(summary(model4)$adj.r.squared,
+                    summary(modelGS)$adj.r.squared,
+                    adjusted_r_squared_lasso,
+                    adjusted_r_squared_ridge),  
+  AIC = c(ols_aic(model4), 
+          ols_aic(modelGS),
+          aic_lasso,
+          aic_ridge),
+  BIC = c(BIC(model4),
+          BIC(modelGS),
+          bic_lasso,
+          bic_ridge)
+)
+
+Perbandingan
+
+```
+
+# Model Akhir Hasil Perbandingan 
+
+```{r}
+summary(modelGS)
+```
+$$
+\hat Y = 3.29 \times 10^{8} -1.928\times 10^{2}X -1.216\times 10^{7}Ei_1 +6.178e\times 10^{8}Ei_2 -1.779\times 10^{8}Ei_3 +3.997\times 10^{8}Ei_4  -2.598\times 10^{7}T -1.995\times 10^{7}M +6.572\times 10^{6}L 
+$$
+
+## Interpretasi 
+
+## Interpretasi 
+
+### Kilometer 
+
+*Jika kilometer bertambah satu kilometer, maka harga mobil akan turun dengan rata-rata sebesar 192,8 rupiah.*  
+
+### Kapasitas Mesin
+
+*1. Mobil bekas dengan kapasitas mesin sebesar 1001-1500 cc memiliki rata-rata harga mobil 12,16 juta rupiah lebih rendah dari kapasitas mesin 1501-200 cc.*\
+*2. Mobil bekas dengan kapasitas mesin sebesar 2001-3000cc memiliki rata-rata harga mobil 617,8 juta rupiah lebih tinggi dari kapasitas mesin 1501-200 cc.*\ 
+*3. Mobil bekas dengan kapasitas mesin sebesar Dibawah 1000 cc memiliki rata-rata harga mobil 177,9 juta lebih rendah dari kapasitas mesin 1501-200 cc. Peubah ini signifikan pada taraf nyata 5%.*\ 
+*4. Mobil bekas dengan kapasitas mesin sebesar Diatas 3000 cc memiliki rata-rata harga mobil 399,7 juta rupiah lebih tinggi dari kapasitas mesin 1501-200 cc. Peubah ini tidak signifikan pada taraf nyata 5%, tetapi signifikan pada taraf nyata 10%.*\ 
+
+### Transmisi 
+
+*Mobil bekas dengan transmisi Manual memiliki rata-rata harga mobil 25,98 juta rupiah lebih rendah dari transmisi mobil otomatis.*
+
+### Kategori Pemakaian lama Mobil(Umur)
+
+*Mobil bekas dengan lama pemakaian lebih dari 5 tahun memiliki rata-rata harga mobil sebesar 19,95 juta rupiah lebih rendah dari mobil dengan lama pemakaian kurang dari 5 tahun. Peubah ini signifikan pada taraf nyata 5%.*
+
+### Kategori Lokasi Mobil 
+
+*Mobil bekas yang dijual di luar jabodetabek memiliki rata-rata harga mobil sebesar 6,57 juta lebih tinggi dari mobil bekas yang dijual di jabodetabek.*
+
+
+# Kesimpulan 
+
+Berdasarkan pemodelan yang telah dilakukan, model terbaik yang diperoleh adalah model regresi dengan metode Robust Estimasi GS. Hal ini karena nilai AIC dan BIC pada model Regresi robust ini paling kecil dibandingkan dengan model dengan metode lainnya. Namun, apabila membandingkan model WLS dengan Lasso dan Ridge maka diperoleh model terbaiknya adalah dengan menggunakan metode Lasso karena nilai AIC dan BIC pada metode lasso lebih kecil dibandingkan metode Ridge dan WLS. Berdasarkan model Regresi dengan metode Robust, diketahui bahwa harga mobil bekas pada website momobil dipengaruhi oleh lima peubah yaitu kilometer, kapasitas mesin, transmisi, umur mobil, dan lokasi penjualan mobil. 
