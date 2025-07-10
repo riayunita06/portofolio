@@ -1,0 +1,936 @@
+---
+title: "Kelompok"
+author: "Ria Yunita"
+date: "2024-11-14"
+output: rmdformats::readthedown
+---
+
+# Packages
+
+```{r}
+library(stringr)
+library(dplyr)
+library(tidyverse)
+library(skimr)
+library(VIM)
+library(performanceEstimation)
+library(caret)
+library(ranger)
+library(gbm)
+library(MLmetrics)
+library(lime)
+library(cowplot)
+library(randomForest)
+library(vcdExtra)
+library(UBL)
+library(ggplot2)
+library(readxl)
+```
+
+```{r}
+library("imbalance")
+```
+
+# Input Data
+
+```{r}
+gym <- read_xlsx("D:/Semester 5/PSD/Proyek UAS/data_gym.xlsx")
+str(gym)
+```
+```{r}
+library(dplyr)
+
+gym <- gym %>%
+  mutate(Y = recode(Y,
+    `1` = "Beginner",
+    `2` = "Intermediate",
+    `3` = "Expert"
+  ))
+str(gym)
+```
+
+**Keterangan data di kaggle**
+
+X1 : Usia
+
+X2 :Jenis kelamin
+
+X3 : Berat (kg)
+
+X4 : Tinggi (m)
+
+X5 : Avg_BPM.
+
+X6 : Resting_BPM
+
+X7 : Session_Duration (jam) (Durasi setiap sesi olahraga dalam jam)
+
+X8 : Calories_Burned (Total kalori yang terbakar selama setiap sesi)
+
+X9 : Workout_Type (Jenis latihan yang dilakukan (misalnya, Kardio, Kekuatan, Yoga, HIIT))
+
+X10 : Fat_Percentage (Persentase lemak tubuh anggota)
+
+x11 : Water_Intake (liter) (Asupan air setiap hari)
+
+X12 : Workout_Frequency (hari/minggu) (Jumlah sesi olahraga per minggu)
+
+Y : Experience_Level 
+
+X13 : BMI Indeks Massa Tubuh, dihitung dari tinggi dan berat badan.
+
+
+
+```{r}
+
+# Mengubah tipe data langsung di kolom yang ada
+gym$X2 <- as.factor(gym$X2)
+gym$X9 <- as.factor(gym$X9)
+gym$Y <- as.factor(gym$Y)
+
+# Memeriksa hasil perubahan tipe data
+str(gym)
+
+```
+
+```{r}
+gym <-data.frame(gym)
+str(gym)
+```
+
+
+# Eksplorasi Data
+
+```{r}
+skimr::skim(gym)
+```
+Berdasarkan data diatas, tidak terdapat missing value pada setiap variabel 
+
+```{r}
+summary(gym)
+```
+
+# Visualisasi Data 
+
+## Sebaran Peubah Kategorik
+
+```{r}
+count_categoric_features <- function(x){
+  ggplot(gym, aes_string(x = x)) +
+    geom_bar() + 
+    coord_flip()
+}
+
+plot_grid(
+  count_categoric_features("X2"),
+  count_categoric_features("X9"))
+```
+
+```{r}
+library(ggplot2)
+
+ggplot(gym, aes(x = X2)) +
+  geom_bar(fill = "steelblue") +
+  geom_text(stat = "count", aes(label = ..count..), vjust = -0.5) +
+  labs(title = "Jumlah Gender yang ikut Gym", x = "Gender", y = "Person") +
+  theme_classic()
+
+```
+
+```{r}
+library(ggplot2)
+
+ggplot(gym, aes(x = X9)) +
+  geom_bar(fill = "steelblue") +
+  geom_text(stat = "count", aes(label = ..count..), vjust = -0.5) +
+  labs(title = "Jumlah Gender yang ikut Gym", x = "Gender", y = "Person") +
+  theme_classic()
+
+```
+
+
+## Sebaran Peubah Numerik 
+
+### Age 
+
+```{r}
+par(mfrow=c(1,2))
+hist(gym$X1, 
+     main="Histogram for Age", 
+     xlab="Age", 
+     border="black", 
+     col="yellow",
+     las=1, 
+     breaks=20, prob = TRUE)
+boxplot(gym$X1, col='yellow',xlab = 'Age', main = 'Boxplot for Age', outcol="red", pch=16)
+```
+
+
+### Height
+
+```{r}
+par(mfrow=c(1,2))
+hist(gym$X3, 
+     main="Histogram for Weight", 
+     xlab="Height", 
+     border="black", 
+     col="yellow",
+     las=1, 
+     breaks=20, prob = TRUE)
+boxplot(gym$X3, col='yellow',xlab = 'Weight', main = 'Boxplot for Weight', outcol="red", pch=16)
+```
+
+### Weight
+
+```{r}
+par(mfrow=c(1,2))
+hist(gym$X4, 
+     main="Histogram for Height", 
+     xlab="Weight", 
+     border="black", 
+     col="yellow",
+     las=1, 
+     breaks=20, prob = TRUE)
+boxplot(gym$X4, col='yellow',xlab = 'Height', main = 'Boxplot for Height', outcol="red", pch=16)
+```
+
+
+### AVG BPM
+
+```{r}
+par(mfrow=c(1,2))
+hist(gym$X5, 
+     main="Histogram for AVG BPM", 
+     xlab="NCP", 
+     border="black", 
+     col="yellow",
+     las=1, 
+     breaks=20, prob = TRUE)
+boxplot(gym$X5, col='yellow',xlab = 'NCP', main = 'Boxplot for NCP', outcol="red", pch=16)
+```
+
+### Resting BPM
+
+```{r}
+par(mfrow=c(1,2))
+hist(gym$X6, 
+     main="Histogram for Resting", 
+     xlab="CH2O", 
+     border="black", 
+     col="yellow",
+     las=1, 
+     breaks=20, prob = TRUE)
+boxplot(gym$X6, col='yellow',xlab = 'Resting', main = 'Boxplot for Resting', outcol="red", pch=16)
+```
+
+### Durasi
+
+```{r}
+par(mfrow=c(1,2))
+hist(gym$X7, 
+     main="Histogram for Durasi", 
+     xlab="FAF", 
+     border="black", 
+     col="yellow",
+     las=1, 
+     breaks=20, prob = TRUE)
+boxplot(gym$X7, col='yellow',xlab = 'Durasi', main = 'Boxplot for Durasi', outcol="red", pch=16)
+```
+
+
+### Kalori yang terbakar
+
+```{r}
+par(mfrow=c(1,2))
+hist(gym$X8, 
+     main="Histogram for Calories", 
+     xlab="TUE", 
+     border="black", 
+     col="yellow",
+     las=1, 
+     breaks=20, prob = TRUE)
+boxplot(gym$X8, col='yellow',xlab = 'Calories', main = 'Boxplot for Calories', outcol="red", pch=16)
+```
+
+### Fat_Percentage
+
+```{r}
+par(mfrow=c(1,2))
+hist(gym$X10, 
+     main="Histogram for Fat_Percentage", 
+     xlab="TUE", 
+     border="black", 
+     col="yellow",
+     las=1, 
+     breaks=20, prob = TRUE)
+boxplot(gym$X10, col='yellow',xlab = 'Fat_Percentage', main = 'Boxplot for Fat_Percentage', outcol="red", pch=16)
+```
+### Water_Intake..liters
+
+```{r}
+par(mfrow=c(1,2))
+hist(gym$X11, 
+     main="Histogram for Water_Intake..liters", 
+     xlab="TUE", 
+     border="black", 
+     col="yellow",
+     las=1, 
+     breaks=20, prob = TRUE)
+boxplot(gym$X11, col='yellow',xlab = 'Water_Intake..liters', main = 'Boxplot for Water_Intake..liters', outcol="red", pch=16)
+```
+### Frekuensi Workout
+
+```{r}
+par(mfrow=c(1,2))
+hist(gym$X12, 
+     main="Histogram for Workout_Frequency", 
+     xlab="TUE", 
+     border="black", 
+     col="yellow",
+     las=1, 
+     breaks=20, prob = TRUE)
+boxplot(gym$X12, col='yellow',xlab = 'Workout_Frequency', main = 'Boxplot for Workout_Frequency', outcol="red", pch=16)
+```
+
+### BMI
+
+```{r}
+par(mfrow=c(1,2))
+hist(gym$X13, 
+     main="Histogram for BMI", 
+     xlab="TUE", 
+     border="black", 
+     col="yellow",
+     las=1, 
+     breaks=20, prob = TRUE)
+boxplot(gym$X13, col='yellow',xlab = 'BMI', main = 'Boxplot for BMI', outcol="red", pch=16)
+```
+
+## Sebaran Peubah Respon 
+
+```{r}
+table_gym <- table(gym$Y)
+df_gym <- as.data.frame(table_gym)
+
+bar.ploty <- ggplot(df_gym, aes(x = Var1, y = Freq, fill = Var1)) +
+  geom_bar(stat = "identity", color = "white") +
+  geom_text(aes(label = Freq), vjust = -0.5, size = 3) +  
+  theme_minimal() +
+  labs(title = "Bar Plot gym", x = "Kategori gym", y = "Total") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+bar.ploty
+```
+```{r}
+#Imbalance Ratio
+imbalanceRatio(gym, classAttr = "Y")
+```
+```{r}
+#Sebaran
+table(gym$Y)
+```
+```{r}
+prop.table(table(gym$Y))
+```
+
+
+## Analisis Korelasi 
+
+```{r}
+# Memuat paket reshape2
+library(reshape2)
+
+```
+
+```{r}
+cordata <- data.matrix(gym)
+cormat <- round(cor(cordata, method = "pearson"),2)
+melted_cormat <- melt(cormat)
+
+# Peroleh segitiga atas dari matriks korelasi
+get_upper_tri <- function(cormat){
+  cormat[lower.tri(cormat)]<- NA
+  return(cormat)
+}
+
+upper_tri <- get_upper_tri(cormat)
+
+# Atur matriks korelasi
+melted_cormat <- melt(upper_tri, na.rm = TRUE)
+
+# Buat ggheatmap
+ggheatmap <- ggplot(melted_cormat, aes(Var2, Var1, fill = value))+
+  geom_tile(color = "white")+
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white",
+                       midpoint = 0, limit = c(-1,1), space = "Lab",
+                       name="Pearson\nCorrelation") +
+  theme_minimal()+ # minimal theme
+  theme(axis.text.x = element_text(angle = 45, vjust = 1,
+                                   size = 9, hjust = 1))+
+  coord_fixed()
+
+ggheatmap +
+  geom_text(aes(Var2, Var1, label = value), color = "black", size = 2) +
+  theme(
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    axis.ticks = element_blank(),
+    legend.justification = c(1, 0),
+    legend.position = c(0.6, 0.7),
+    legend.direction = "horizontal")+
+  guides(fill = guide_colorbar(barwidth = 7, barheight = 1,
+                               title.position = "top", title.hjust = 0.5))
+
+```
+
+# Splitting Data
+
+```{r}
+set.seed(123)
+train_idx <- createDataPartition(gym$Y, p = 0.8, list=FALSE)
+trainData <- gym[train_idx,]
+testData <- gym[-train_idx,]
+```
+
+# Modeling
+
+K-fold cross validation adalah salah satu teknik validasi untuk mencari tuning parameter terbaik sekaligus mengevaluasi kinerja model. Pada studi kasus ini digunakan 5-fold cross validation. Data dipartisi secara acak ke dalam lima subset data. Secara bergantian masing-masing subset akan dijadikan sebagai data testing, sementara empat subset data lainnya sebagai data training.
+
+Pemodelan dilakukan dengan mencari Tuning Parameter dengan tuneLength. Opsi tuneLength ini akan memilih sejumlah tuning parameter atau kombinasi tuning parameter yang dianggap paling tepat sesuai dengan metode yang dipilih dan data training yang diberikan.
+
+```{r}
+set.seed(123)
+fitControl <- trainControl(
+  method = "cv",
+  number = 5,
+  returnResamp = "all")
+```
+
+
+# Random Forest 
+
+## Tanpa Penanganan
+
+### Cross Validation
+
+```{r}
+set.seed(123)
+random_forest <- train(Y~ ., 
+            data = trainData,
+            method = 'ranger',
+            tuneLength = 10, 
+            importance = "impurity",
+            trControl = fitControl,
+            verbose = FALSE)
+random_forest
+```
+
+```{r}
+plot(random_forest, main = "5-Fold Cross Validation Random Forest Tanpa Penanganan: tuneLength")
+```
+```{r}
+random_forest_best <- random_forest$bestTune
+random_forest_best 
+```
+
+### Re-Fit Model Menggunakan Tuning Parameter Terbaik
+
+```{r}
+set.seed(123)
+random_forest <- train(Y~ ., 
+            data = trainData,
+            method = 'ranger',
+            tuneGrid  = random_forest_best , 
+            importance = "impurity",
+            verbose = FALSE)
+random_forest
+```
+```{r}
+rf_result <- random_forest$results
+rf_result
+```
+```{r}
+set.seed(123)
+rf_mod<-randomForest(Y~., data = trainData, mtry=4)
+rf_mod
+```
+### Akurasi 
+
+```{r}
+eval_test_data <- function(model) {
+  pred <- predict(model, newdata = testData)
+  confusion_matrix <- confusionMatrix(pred, testData$Y)
+  Accuracy <- confusion_matrix$overall["Accuracy"]
+  Kappa <- confusion_matrix$overall["Kappa"]
+  return(c(Accuracy, Kappa))
+}
+
+rf_eval <- eval_test_data(random_forest)
+rf_eval
+```
+
+### Peubah Penting
+
+```{r}
+plot(varImp(random_forest), 
+     main = "Random Forest Tanpa Penanganan Variable Importance" )
+```
+
+## Gradient Boosting
+
+### Cross Validation
+
+```{r}
+set.seed(123)
+boost <- train(Y~., 
+               data=trainData, 
+               method="gbm",
+               tuneLength = 10,  
+               trControl=fitControl,
+               verbose = FALSE)
+boost
+```
+
+```{r}
+plot(boost, main = "5-Fold Cross Validation Gradient Boosting Tanpa Penanganan: tuneLength")
+```
+
+```{r}
+boost_best <- boost$bestTune
+boost_best
+```
+
+
+Berdasarkan output di atas, tuning parameter terbaik adalah n.trees = 50, interaction.depth = 1, shrinkage = 0.1 dan n.minobsinnode = 10, yang memberikan Accuracy =  0.8973284  dan Kappa = 0.8382546
+
+### Re-Fit Model Menggunakan Tuning Parameter Terbaik
+
+```{r}
+set.seed(123)
+boost <- train(Y~., 
+               data=trainData, 
+               method="gbm",
+               tuneGrid  = boost_best,
+               verbose = FALSE)
+boost
+```
+
+```{r}
+boost_result <- boost$results
+boost_result
+```
+Diperoleh Accuracy = 0.8879424	dan Kappa = 0.8227961
+
+### Evaluasi Terhadap Data Test
+
+```{r}
+boost_eval <- eval_test_data(boost)
+boost_eval
+```
+
+Diperoleh Accuracy sebesar 0.9020619
+
+### Variable Importance
+
+```{r}
+plot(varImp(boost),
+     main = "Gradient Boosting Tanpa Penanganan Variable Importance" )
+```
+
+
+# SMOTE
+
+```{r}
+# smote for multinomial classification
+smote_data <- SmoteClassif(form = Y~ ., 
+                                dat = trainData, 
+                                C.perc = "balance",  
+                                dist = "HVDM")
+table(smote_data$Y)
+```
+
+## Random Forest
+
+### Cross Validation
+
+```{r}
+set.seed(123)
+rf_smote <- train(Y~ ., 
+            data = smote_data,
+            method = 'ranger',
+            tuneLength = 10, 
+            importance = "impurity",
+            trControl = fitControl,
+            verbose = FALSE)
+rf_smote
+```
+
+
+```{r}
+plot(rf_smote, main = "5-Fold Cross Validation Random Forest SMOTE: tuneLength")
+```
+
+```{r}
+rf_smote_best <- rf_smote$bestTune
+rf_smote_best
+```
+
+```{r}
+set.seed(123)
+rf_smote <- train(Y~ ., 
+            data = smote_data,
+            method = 'ranger',
+            tuneGrid  = rf_smote_best, 
+            importance = "impurity",
+            verbose = FALSE)
+rf_smote
+```
+
+```{r}
+rf_smote_result <- rf_smote$results
+rf_smote_result
+```
+
+```{r}
+set.seed(123)
+rf_mod4<-randomForest(Y~., data = smote_data, mtry=2)
+rf_mod4
+```
+
+### Akurasi 
+
+```{r}
+rf_smote_eval <- eval_test_data(rf_smote)
+rf_smote_eval
+```
+
+### Peubah Penting
+
+```{r}
+plot(varImp(rf_smote), 
+     main = "Random Forest SMOTE Variable Importance" )
+```
+
+## Gradien Boosting 
+
+### Cross Validation
+
+```{r}
+set.seed(123)
+boost_smote <- train(Y ~., 
+               data=smote_data, 
+               method="gbm",
+               tuneLength = 10,  
+               trControl=fitControl,
+               verbose = FALSE)
+boost_smote
+```
+
+```{r}
+plot(boost_smote, main = "5-Fold Cross Validation Gradient Boosting SMOTE: tuneLength")
+```
+
+
+
+```{r}
+boost_smote_best <- boost_smote$bestTune
+boost_smote_best
+```
+
+### Re-Fit Model Menggunakan Tuning Parameter Terbaik
+
+```{r}
+set.seed(123)
+boost_smote <- train(Y ~., 
+               data=smote_data, 
+               method="gbm",
+               tuneGrid  = boost_smote_best,
+               verbose = FALSE)
+boost_smote
+```
+
+```{r}
+boost_smote_result <- boost_smote$results
+boost_smote_result
+```
+
+
+### Evaluasi Data Test 
+
+```{r}
+boost_smote_eval <- eval_test_data(boost_smote)
+boost_smote_eval
+```
+
+### Variabel Important
+
+```{r}
+plot(varImp(boost_smote),
+     main = "Gradient Boosting SMOTE Variable Importance" )
+```
+
+# Oversampling
+
+```{r}
+# Upsample for multinomial classification
+set.seed(123)
+over_data <- upSample(x = trainData[, -c(13)], y = trainData$Y, yname = "Experience_Level")
+table(over_data$Experience_Level)
+```
+## Random Forest 
+
+### Cross Validation
+
+```{r}
+set.seed(123)
+rf_over <- train(Experience_Level~ ., 
+            data = over_data,
+            method = 'ranger',
+            tuneLength = 10, 
+            importance = "impurity",
+            trControl = fitControl,
+            verbose = FALSE)
+rf_over
+```
+```{r}
+plot(rf_over, main = "5-Fold Cross Validation Random Forest Oversampling: tuneLength")
+```
+
+```{r}
+rf_over_best <- rf_over$bestTune
+rf_over_best
+```
+
+### Re Fit Model
+
+
+```{r}
+set.seed(123)
+rf_over <- train(Experience_Level~ ., 
+            data = over_data,
+            method = 'ranger',
+            tuneGrid  = rf_over_best, 
+            importance = "impurity",
+            verbose = FALSE)
+rf_over
+```
+```{r}
+rf_over_result <- rf_over$results
+rf_over_result
+```
+```{r}
+set.seed(123)
+rf_mod2<-randomForest(Experience_Level~., data = over_data, mtry=7)
+rf_mod2
+```
+
+### Akurasi data Test 
+
+```{r}
+rf_over_eval <- eval_test_data(rf_over)
+rf_over_eval
+```
+### Variabel Important 
+
+```{r}
+plot(varImp(rf_over), 
+     main = "Random Forest Oversampling Variable Importance" )
+```
+
+## Gradient Boosting 
+
+### Cross Validation
+
+```{r}
+set.seed(123)
+boost_over <- train(Experience_Level~., 
+               data=over_data, 
+               method="gbm",
+               tuneLength = 10,  
+               trControl=fitControl,
+               verbose = FALSE)
+boost_over
+```
+
+
+```{r}
+plot(boost_over, main = "5-Fold Cross Validation Gradient Boosting Oversampling: tuneLength")
+```
+
+
+```{r}
+boost_over_best <- boost_over$bestTune
+boost_over_best
+```
+
+
+### Re fit Model 
+
+```{r}
+set.seed(123)
+boost_over <- train(Experience_Level ~., 
+               data=over_data, 
+               method="gbm",
+               tuneGrid  = boost_over_best,
+               verbose = FALSE)
+boost_over
+```
+
+
+```{r}
+boost_over_result <- boost_over$results
+boost_over_result
+```
+
+
+### Akurasi data Test
+
+```{r}
+boost_over_eval <- eval_test_data(boost_over)
+boost_over_eval
+```
+
+### Variable Importan
+
+```{r}
+plot(varImp(boost_over),
+     main = "Gradient Boosting Oversampling Variable Importance" )
+```
+
+
+# Undersampling 
+
+```{r}
+set.seed(123)
+under_data <- downSample(x = trainData[, -c(13)], y = trainData$Y, yname = "Experience_Level")
+table(under_data$Experience_Level)
+```
+
+## Random Forest 
+
+### Cross Validation
+
+```{r}
+set.seed(123)
+rf_under <- train(Experience_Level~ ., 
+            data = under_data,
+            method = 'ranger',
+            tuneLength = 10, 
+            importance = "impurity",
+            trControl = fitControl,
+            verbose = FALSE)
+rf_under
+```
+
+```{r}
+plot(rf_under, main = "5-Fold Cross Validation Random Forest Undersampling: tuneLength")
+```
+
+```{r}
+rf_under_best <- rf_under$bestTune
+rf_under_best
+```
+```{r}
+set.seed(123)
+rf_under <- train(Experience_Level ~ ., 
+            data = under_data,
+            method = 'ranger',
+            tuneGrid  = rf_under_best, 
+            importance = "impurity",
+            verbose = FALSE)
+rf_under
+```
+```{r}
+rf_under_result <- rf_under$results
+rf_under_result
+```
+```{r}
+set.seed(123)
+rf_mod3<-randomForest(Experience_Level ~., data = under_data, mtry=2)
+rf_mod3
+```
+### Akurasi Test 
+
+```{r}
+rf_under_eval <- eval_test_data(rf_under)
+rf_under_eval
+```
+
+### Plot Variabel Important
+
+```{r}
+plot(varImp(rf_under), 
+     main = "Random Forest Undersampling Variable Importance" )
+```
+
+## Gradient Boosting
+
+```{r}
+set.seed(123)
+boost_under <- train(Experience_Level ~., 
+               data=under_data, 
+               method="gbm",
+               tuneLength = 10,  
+               trControl=fitControl,
+               verbose = FALSE)
+boost_under
+```
+
+```{r}
+plot(boost_under, main = "5-Fold Cross Validation Boosting Undersampling: tuneLength")
+```
+```{r}
+boost_under_best <- boost_under$bestTune
+boost_under_best
+```
+
+```{r}
+set.seed(123)
+boost_under <- train(Experience_Level ~., 
+               data=under_data, 
+               method="gbm",
+               tuneGrid  = boost_under_best,
+               verbose = FALSE)
+```
+
+
+```{r}
+boost_under
+```
+```{r}
+boost_under_result <- boost_under$results
+boost_under_result
+```
+
+### Akurasi Test
+
+```{r}
+boost_under_eval <- eval_test_data(boost_under)
+boost_under_eval
+```
+
+```{r}
+plot(varImp(boost_under),
+     main = "Gradient Boosting Undersampling Variable Importance" )
+```
+
+# Evaluasi Semua Model
+
+```{r}
+eval_all <- matrix(c(rf_eval, rf_over_eval,rf_under_eval,rf_smote_eval, boost_eval, boost_over_eval,boost_under_eval,boost_smote_eval), nrow = 8, byrow = T)
+colnames(eval_all) <- names(rf_eval)
+row.names(eval_all) <- c("Random Forest Tanpa Penanganan", 
+                         "Random Forest Oversampling",
+                         "Random Forest Undersampling", 
+                         "Random Forest SMOTE", 
+                         "Gradient Boosting Tanpa Penanganan", 
+                         "Gradient Boosting Oversampling",
+                         "Gradient Boosting Undersampling",
+                         "Gradient Boosting SMOTE")
+eval_all
+```
+
+
