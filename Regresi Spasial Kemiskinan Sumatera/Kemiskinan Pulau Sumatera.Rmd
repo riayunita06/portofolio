@@ -1,0 +1,840 @@
+---
+title: "Kelompok 3"
+author: "Ria Yunita"
+date: "2024-11-23"
+output: rmdformats::readthedown
+---
+
+# Packages
+
+```{r}
+library(spdep)        # Analisis data spasial: spatial autocorrelation, spatial regression
+library(sp)           # Struktur data untuk manipulasi data spasial (poligon, titik, dll)
+library(sf)           # Mengelola data spasial dengan standar Simple Features (sf)
+library(readxl)       # Membaca file Excel (format .xls dan .xlsx)
+library(openxlsx)     # Membuat, membaca, dan menulis file Excel (lebih cepat dari readxl)
+library(corrplot)     # Membuat visualisasi korelasi dalam bentuk plot
+library(DescTools)    # Kumpulan fungsi statistik deskriptif dan inferensial
+library(nortest)      # Melakukan uji normalitas (Anderson-Darling, Lilliefors, dll)
+library(car)          # Fungsi regresi linear dan diagnostik model (vif, durbinWatsonTest, dll)
+library(spatialreg)   # Estimasi model regresi spasial (SAR, SEM, SLM)
+library(lmtest)       # Fungsi untuk menguji model regresi (heteroskedastisitas, serial correlation)
+library(dplyr)        # Manipulasi data seperti filter, select, mutate, dan summarise
+library(RColorBrewer) # Skema palet warna yang dapat digunakan dalam visualisasi
+library(ggplot2)      # Membuat grafik statistik dengan pendekatan Grammar of Graphics
+```
+
+
+# Import Data
+
+```{r}
+library(readxl)
+
+data_ipm <-read.xlsx("D:/Semester 5/Regspas/Projek UAS/Kemiskinan_pulau_sumatera.xlsx", sheet = "Sheet1")
+str(data_ipm)
+```
+
+```{r}
+petaindo <- st_read("D:/Semester 5/Regspas/Projek UAS/idn_adm_bps_20200401_shp (1)/idn_admbnda_adm2_bps_20200401.shp")
+```
+
+```{r}
+str(petaindo)
+```
+```{r}
+library(dplyr)
+
+petaindo_filtered <- petaindo %>%
+  select(ADM2_EN, ADM2_PCODE, ADM1_EN, ADM1_PCODE, geometry)
+```
+
+```{r}
+str(petaindo_filtered)
+```
+
+```{r}
+# Filter kabupaten di SHP yang hanya ada di data Excel
+shp_filtered <- petaindo_filtered %>%
+  filter(ADM2_PCODE %in% data_ipm$ID_KABKOT)
+str(shp_filtered)
+```
+
+```{r}
+data_ipm <- data_ipm %>%
+  rename(ADM2_PCODE = ID_KABKOT)
+```
+
+
+
+```{r}
+sumatera <- shp_filtered %>%
+  left_join(data_ipm, by = "ADM2_PCODE")
+str(sumatera)
+```
+
+```{r}
+petasumatera <- sumatera %>%
+  select(ADM2_EN, ADM2_PCODE, PROVINSI, ADM1_PCODE, geometry)
+str(petasumatera)
+```
+
+```{r}
+plot(petasumatera, main = "Peta Pulau Sumatera")
+```
+
+```{r}
+plot(petasumatera[1], main = "Peta Pulau Sumatera (Kabupaten)")
+```
+
+# Eksplorasi Data
+
+## Statistika Deskriptif 
+
+```{r}
+summary(data_ipm[,-c(1,2)])
+```
+
+```{r}
+# Menunjukkan kab/kota dengan Y tertinggi
+kab_max <- data_ipm %>%
+  arrange(desc(Y)) %>%
+  slice(1)
+
+print(paste("Kabupaten/kota dengan Y tertinggi adalah", kab_max$`Kabupaten/Kota`))
+```
+```{r}
+# Menunjukkan kab/kota dengan Y terendah
+kab_min <- data_ipm %>%
+  arrange(Y) %>%
+  slice(1)
+
+print(paste("Kabupaten/kota dengan Y terendah adalah", kab_min$`Kabupaten/Kota`))
+```
+## Boxplot - Identifikasi Pencilan
+
+```{r}
+par(mfrow=c(2,3))
+boxplot(data_ipm$Y,main = "Sebaran Y", col="dodgerblue")
+boxplot(data_ipm$X1,main = "Sebaran X1", col="dodgerblue")
+boxplot(data_ipm$X2,main = "Sebaran X2", col="dodgerblue")
+boxplot(data_ipm$X3,main = "Sebaran X3", col="dodgerblue")
+boxplot(data_ipm$X4,main = "Sebaran X4", col="dodgerblue")
+boxplot(data_ipm$X5,main = "Sebaran X5", col="dodgerblue")
+```
+
+Peubah PDRB memiliki banyak pencilan sehingga perlu dilakukan transformasi LOG 
+
+## Transformasi 
+
+```{r}
+data_ipm$X5_log <- log(data_ipm$X5)
+```
+
+## Boxplot - Identifikasi Pencilan
+
+```{r}
+par(mfrow=c(2,3))
+boxplot(data_ipm$Y,main = "Sebaran Y", col="dodgerblue")
+boxplot(data_ipm$X1,main = "Sebaran X1", col="dodgerblue")
+boxplot(data_ipm$X2,main = "Sebaran X2", col="dodgerblue")
+boxplot(data_ipm$X3,main = "Sebaran X3", col="dodgerblue")
+boxplot(data_ipm$X4,main = "Sebaran X4", col="dodgerblue")
+boxplot(data_ipm$X5_log,main = "Sebaran X5", col="dodgerblue")
+```
+
+
+## Hubungan antara Peubah Respon dan Peubah Penjelas
+
+```{r}
+pairs(data_ipm[,-c(1,2,3,4,10,11,12)], pch = 19, lower.panel = NULL)
+```
+
+
+## Korelasi antar Peubah
+
+```{r}
+corrplot(cor(data_ipm[,-c(1,2,3,4,10,11,12)]), method = "number")
+```
+
+
+### Uji Korelasi antarpeubah
+
+#### Korelasi Y dengan X1
+
+Ho: Tidak terdapat korelasi antara peubah Y dan X1
+
+H1: Ada korelasi antara peubah Y dan X1
+
+Keputusan: Tolak Ho jika p-value < alpha=0.05
+
+```{r}
+#Y dengan X1
+cor.test(data_ipm$Y, data_ipm$X1)
+```
+
+Kesimpulan: Tolak Ho berarti pada taraf nyata 5% (p-value < 0.05), Terdapat korelasi antara peubah Y dan X1.
+
+#### Korelasi Y dengan X2
+
+Ho: Tidak terdapat korelasi antara peubah Y dan X2
+
+H1: Ada korelasi antara peubah Y dan X2
+
+Keputusan: Tolak Ho jika p-value < alpha=0.05
+
+```{r}
+#Y dengan X2
+cor.test(data_ipm$Y, data_ipm$X2)
+```
+
+Kesimpulan: Tolak Ho berarti pada taraf nyata 5% (p-value < 0.05), Terdapat korelasi antara peubah Y dan X2.
+
+#### Korelasi Y dengan X3
+
+Ho: Tidak terdapat korelasi antara peubah Y dan X3
+
+H1: Ada korelasi antara peubah Y dan X3
+
+Keputusan: Tolak Ho jika p-value < alpha=0.05
+
+```{r}
+#Y dengan X3
+cor.test(data_ipm$Y, data_ipm$X3)
+```
+
+Kesimpulan: Tolak Ho berarti pada taraf nyata 5% (p-value < 0.05), Terdapat korelasi antara peubah Y dan X3.
+
+#### Korelasi Y dengan X4
+
+Ho: Tidak terdapat korelasi antara peubah Y dan X4
+
+H1: Ada korelasi antara peubah Y dan X4
+
+Keputusan: Tolak Ho jika p-value < alpha=0.05
+
+```{r}
+#Y dengan X4
+cor.test(data_ipm$Y, data_ipm$X4)
+```
+
+Kesimpulan: Tolak Ho berarti pada taraf nyata 5% (p-value < 0.05), Terdapat korelasi antara peubah Y dan X4.
+
+#### Korelasi Y dengan X5
+
+Ho: Tidak terdapat korelasi antara peubah Y dan X5
+
+H1: Ada korelasi antara peubah Y dan X5
+
+Keputusan: Tolak Ho jika p-value < alpha=0.05
+
+```{r}
+#Y dengan X5
+cor.test(data_ipm$Y, data_ipm$X5_log)
+```
+
+Kesimpulan: Tolak Ho berarti pada taraf nyata 5% (p-value < 0.05), Terdapat korelasi antara peubah Y dan X5.
+
+## Sebaran Spasial Data
+
+### Sebaran Peubah Y
+
+```{r}
+k=101
+colfunc <- colorRampPalette(c("green", "yellow","red"))
+
+petasumatera$Y <- data_ipm$Y
+
+# Plot menggunakan ggplot2
+ggplot(petasumatera) +
+  geom_sf(aes(fill = Y)) +
+  scale_fill_gradientn(colors = colfunc(k)) +
+  labs(title = "Peta Sebaran Spasial Peubah Respon Y") +
+  theme_minimal()
+```
+
+Berdasarkan plot di atas, dapat dilihat adanya kecenderungan pola bergerombol dengan wilayah tetangganya pada kemiskinan di pulau sumatera. Hal ini tampak dari gradasi warna yang cenderung mengumpul. Artinya terdapat kemiripan antar kabupaten/kota terhadap sebaran presentase kemiskinan sehingga terindikasi adanya autokorelasi spasial positif. Selain itu, Berdasarkan Plot tersebut juga terlihat bahwa tingkat kemiskinan pada kabupaten/kota di pulau sumatera cenderung rendah, dengan terdapat beberapa hotspot atau daerah yang memiliki tingkat kemiskinan yang tinggi. 
+
+
+### Sebaran Peubah X1
+
+```{r}
+k=101
+colfunc <- colorRampPalette(c("green", "yellow","red"))
+
+petasumatera$X1 <- data_ipm$X1
+
+# Plot menggunakan ggplot2
+ggplot(petasumatera) +
+  geom_sf(aes(fill = X1)) +
+  scale_fill_gradientn(colors = colfunc(k)) +
+  labs(title = "Peta Sebaran Spasial Peubah Respon X1") +
+  theme_minimal()
+```
+
+### Sebaran Peubah X2
+
+```{r}
+k=101
+colfunc <- colorRampPalette(c("green", "yellow","red"))
+
+petasumatera$X2 <- data_ipm$X2
+
+# Plot menggunakan ggplot2
+ggplot(petasumatera) +
+  geom_sf(aes(fill = X2)) +
+  scale_fill_gradientn(colors = colfunc(k)) +
+  labs(title = "Peta Sebaran Spasial Peubah Respon X2") +
+  theme_minimal()
+```
+
+### Sebaran Peubah X3
+
+```{r}
+k=101
+colfunc <- colorRampPalette(c("green", "yellow","red"))
+
+petasumatera$X3 <- data_ipm$X3
+
+# Plot menggunakan ggplot2
+ggplot(petasumatera) +
+  geom_sf(aes(fill = X3)) +
+  scale_fill_gradientn(colors = colfunc(k)) +
+  labs(title = "Peta Sebaran Spasial Peubah Respon X3") +
+  theme_minimal()
+```
+
+### Sebaran Peubah X4
+
+```{r}
+k=101
+colfunc <- colorRampPalette(c("green", "yellow","red"))
+
+petasumatera$X4 <- data_ipm$X4
+
+# Plot menggunakan ggplot2
+ggplot(petasumatera) +
+  geom_sf(aes(fill = X4)) +
+  scale_fill_gradientn(colors = colfunc(k)) +
+  labs(title = "Peta Sebaran Spasial Peubah Respon X4") +
+  theme_minimal()
+```
+
+### Sebaran Peubah X5
+
+```{r}
+k=101
+colfunc <- colorRampPalette(c("green", "yellow","red"))
+
+petasumatera$X5 <- data_ipm$X5
+
+# Plot menggunakan ggplot2
+ggplot(petasumatera) +
+  geom_sf(aes(fill = X5)) +
+  scale_fill_gradientn(colors = colfunc(k)) +
+  labs(title = "Peta Sebaran Spasial Peubah Respon X5") +
+  theme_minimal()
+```
+
+# Matriks Pembobot Spasial
+
+## Matriks Bobot Berdasarkan Ketetanggan
+
+### Queen Contiguity
+
+```{r}
+# Memvalidasi geometri dalam objek sf
+peta <- st_make_valid(petasumatera)
+# Konversi objek sf ke objek sp
+sp.peta <- as(peta, "Spatial")
+
+# Mengakses slot polygons dari objek sp
+sp.polygons <- SpatialPolygons(sp.peta@polygons)
+queen <- poly2nb(sp.peta, queen = T)
+```
+
+```{r}
+queen
+```
+
+```{r}
+W.queen <- nb2listw(queen, style='W',zero.policy=TRUE)
+qc = moran.test(data_ipm$Y, W.queen,randomisation=T,
+alternative="greater", zero.policy = TRUE)
+qc
+```
+
+```{r}
+moran.mc(data_ipm$Y, listw = W.queen, zero.policy = TRUE, nsim = 99)
+```
+
+### Rook Contiguity
+
+```{r}
+rook <- poly2nb(sp.peta, queen = F)
+```
+
+```{r}
+rook
+```
+```{r}
+W.rook <- nb2listw(rook, style='W',zero.policy=TRUE)
+rc = moran.test(data_ipm$Y, W.rook,randomisation=T,
+alternative="greater", zero.policy = TRUE)
+rc
+```
+## Matriks Bobot Berdasarkan Jarak
+
+```{r}
+# Menghitung centroid dari setiap unit spasial
+centroids <- st_centroid(peta)
+```
+
+```{r}
+# Ekstrak koordinat centroid
+longlat <- st_coordinates(centroids)
+
+# Tambahkan koordinat long dan lat ke objek peta
+peta$long <- longlat[, 1]  # Kolom X (long)
+peta$lat  <- longlat[, 2]  # Kolom Y (lat)
+```
+
+```{r}
+coords <- peta[c("long","lat")]
+#class(coords)
+koord <- as.data.frame(coords)
+jarak<-dist(longlat, method = "euclidean")
+m.jarak<-as.matrix(jarak)
+```
+
+
+### K-Nearest Neighbor
+
+```{r}
+# k = 10
+W.knn<-knn2nb(knearneigh(longlat,k=10,longlat=TRUE))
+W.knn.s <- nb2listw(W.knn,style='W')
+
+MI.knn <- moran(data_ipm$Y,W.knn.s,n=length(W.knn.s$neighbours),S0=Szero(W.knn.s))
+mt1 = moran.test(data_ipm$Y,W.knn.s,randomisation = T,alternative = "greater")
+mt1
+```
+
+### Radial Distance Weight
+
+```{r}
+W.rdw <-dnearneigh(longlat,0,300,longlat=TRUE)
+W.rdw.s <- nb2listw(W.rdw,style='W')
+
+MI.rdw <- moran(data_ipm$Y,W.rdw.s,n=length(W.rdw.s$neighbours),S0=Szero(W.rdw.s))
+mt2 = moran.test(data_ipm$Y,W.rdw.s,randomisation = T,alternative = "greater")
+mt2
+```
+
+### Invers Distance Weight
+
+```{r}
+alpha1=1
+W.idw <-1/(m.jarak^alpha1)
+diag(W.idw)<-0
+rtot<-rowSums(W.idw,na.rm=TRUE)
+W.idw.sd<-W.idw/rtot #row-normalized
+W.idw.s = mat2listw(W.idw.sd,style='W')
+
+MI.idw <- moran(data_ipm$Y,W.idw.s,n=length(W.idw.s$neighbours),S0=Szero(W.idw.s))
+mt3 = moran.test(data_ipm$Y,W.idw.s,randomisation = T,alternative = "greater")
+mt3
+```
+```{r}
+alpha2=2
+W.idw2<-1/(m.jarak^alpha2)
+diag(W.idw2)<-0
+rtot<-rowSums(W.idw2,na.rm=TRUE)
+W.idw2.sd<-W.idw2/rtot #row-normalized
+W.idw2.s = mat2listw(W.idw2.sd,style='W')
+
+MI.idw2 <- moran(data_ipm$Y,W.idw2.s,n=length(W.idw2.s$neighbours),S0=Szero(W.idw2.s))
+mt4 = moran.test(data_ipm$Y,W.idw2.s,randomisation = T,alternative = "greater")
+mt4
+```
+
+## Exponential Distance Weight
+
+```{r}
+alpha=1
+W.edw<-exp((-alpha)*m.jarak)
+diag(W.edw)<-0
+rtot<-rowSums(W.edw,na.rm=TRUE)
+W.edw.sd<-W.edw/rtot #row-normalized
+W.edw.s = mat2listw(W.edw.sd,style='W')
+
+MI.edw <- moran(data_ipm$Y,W.edw.s,n=length(W.edw.s$neighbours),S0=Szero(W.edw.s))
+mt5 = moran.test(data_ipm$Y,W.edw.s,randomisation = T,alternative = "greater")
+mt5
+```
+```{r}
+alpha=2
+W.edw<-exp((-alpha)*m.jarak)
+diag(W.edw)<-0
+rtot<-rowSums(W.edw,na.rm=TRUE)
+W.edw.sd<-W.edw/rtot #row-normalized
+W.edw.s = mat2listw(W.edw.sd,style='W')
+
+MI.edw2 <- moran(data_ipm$Y,W.edw.s,n=length(W.edw.s$neighbours),S0=Szero(W.edw.s))
+mt6 = moran.test(data_ipm$Y,W.edw.s,randomisation = T,alternative = "greater")
+mt6
+```
+
+## Pemilihan Matriks Bobot Terbaik
+
+```{r}
+MatriksBobot <- c("K-Nearest Neighbor (k=10)",
+                  "Radial Distance Weight (dmax=300)",
+                  "Invers Distance Weight (alpha=1)",
+                  "Invers Distance Weight (alpha=2)",
+                  "Exponential Distance Weight (alpha=1)",
+                  "Exponential Distance Weight (alpha=2)",
+                  "Rook Contiguity",
+                  "Queen Contiguity")
+IndeksMoran <- c(MI.knn$I,MI.rdw$I,MI.idw$I,MI.idw2$I,MI.edw$I,MI.edw2$I,rc$estimate[1],qc$estimate[1])
+pv = c(mt1$p.value,mt2$p.value,mt3$p.value,mt4$p.value,mt5$p.value,mt6$p.value,rc$p.value,qc$p.value)
+Matriks = cbind.data.frame(MatriksBobot, IndeksMoran,"p-value"=pv)
+colnames(Matriks) <-c("Matriks Bobot", "Indeks Moran", "p-value")
+Matriks
+
+```
+
+
+Berdasakan hasil di atas, Matriks bobot yang memiliki nilai Indeks Moran yang signifikan pada taraf 5% adalah k-nearest neighbor (k=10).Selain itu, matriks ini juga memiliki Indeks Moran tertinggi sehingga matriks tersebut dapat dipilih menjadi matriks pembobot spasial yang terbaik diantara matriks pembobot lainnya. Selanjutnya matriks pembobot yang digunakan dalam analisis adalah k-nearest neighbor dengan 10 tetangga terdekat.
+
+
+# Model Regresi Klasik (OLS)
+
+## Metode OLS
+
+```{r}
+ols <- lm(Y~X1+X2+X3+X4+X5_log, data=data_ipm)
+summary(ols)
+```
+
+## Diagnostik Model
+
+### Uji Normalitas Sisaan
+
+```{r}
+err.ols <- residuals(ols)
+ad.test(err.ols)
+```
+
+Karena p-value < 5%, maka tolak H0. Artinya sisaan tidak menyebar normal.
+
+```{r}
+hist(err.ols)
+```
+```{r}
+qqnorm(err.ols,datax=T)
+qqline(rnorm(length(err.ols),mean(err.ols),sd(err.ols)),datax=T, col="red")
+```
+
+### Uji Kehomogenan Ragam
+
+H0 : Ragam Sisaan Homogen H1 : Ragam Sisaan Tidak Homogen
+
+```{r}
+lmtest::bptest(ols)
+```
+
+Karena p-value > 0.05, maka gagal tolak H0. Artinya ragam sisaan homogen
+
+###  Uji Multikolinearitas
+
+```{r}
+car::vif(ols)
+```
+
+Berdasarkan perhitungan, diperoleh nilai VIF < 5 yang menunjukkan tidak terjadi multikolinearitas antar peubah penjelas.
+
+```{r}
+aic_value <- AIC(ols)
+print(aic_value)
+```
+
+# Pengujian Efek Spasial
+
+## Efek Dependensi Spasial
+
+### Uji Indeks Moran
+
+H0 : Tidak ada autokorelasi spasial
+
+H1 : Ada autokorelasi spasial
+
+Uji Indeks Moran pada Galat Model Regresi
+
+```{r}
+ww = W.knn.s 
+lm.morantest(ols, listw=ww, alternative="two.sided", zero.policy = TRUE)
+```
+```{r}
+err.ols <- residuals(ols)
+merr <- moran.test(err.ols, ww,randomisation=T, 
+           alternative="two.sided")
+merr
+```
+
+Uji Indeks Moran pada Peubah Y
+
+```{r}
+my <- moran.test(data_ipm$Y, ww,randomisation=T, 
+           alternative="two.sided")
+my
+```
+
+```{r}
+moran.plot(data_ipm$Y, ww, labels=sumatera$ADM2_PCODE)
+```
+
+Uji Indeks Moran pada Peubah X1
+
+```{r}
+mx1 <- moran.test(data_ipm$X1, ww,randomisation=T, 
+           alternative="two.sided")
+mx1
+```
+
+Uji Indeks Moran pada Peubah X2
+
+```{r}
+mx2 <- moran.test(data_ipm$X2, ww,randomisation=T, 
+           alternative="two.sided")
+mx2
+```
+
+Uji Indeks Moran pada Peubah X3
+
+```{r}
+mx3 <- moran.test(data_ipm$X3, ww,randomisation=T, 
+           alternative="two.sided")
+mx3
+```
+
+Uji Indeks Moran pada Peubah X4
+
+```{r}
+mx4 <- moran.test(data_ipm$X4, ww,randomisation=T, 
+           alternative="two.sided")
+mx4
+```
+
+Uji Indeks Moran pada Peubah X5
+
+```{r}
+mx5 <- moran.test(data_ipm$X5_log, ww,randomisation=T, 
+           alternative="two.sided")
+mx5
+```
+
+Berikut ini adalah hasil uji autokorelasi pada peubah respon, peubah penjelas, dan sisaan regresi
+
+```{r}
+Peubah = c("Y","X1","X2","X3","X4","X5","Sisaan")
+Indeks_Moran = c(my$estimate[1], mx1$estimate[1], mx2$estimate[1],  mx3$estimate[1],  mx4$estimate[1],  mx5$estimate[1], merr$estimate[1])
+p_value = c(my$p.value, mx1$p.value, mx2$p.value,mx3$p.value, mx4$p.value, mx5$p.value, merr$p.value)
+
+df1 = cbind.data.frame(Peubah, Indeks_Moran, p_value)
+colnames(df1) <- c("Peubah", "Indeks Moran", "p-value")
+df1
+```
+
+Berdasarkan hasil pengujian Indeks Moran di atas menunjukkan bahwa nilai indeks Moran pada peubah Y dan sisaan model regresi memiliki nilai p-value < 0.05 maka Tolak H0 sehingga autokorelasi spasial pada peubah tersebut berpengaruh nyata. Hal ini mengindikasikan bahwa terdapat ketergantungan spasial pada peubah y dan sisaan model regresi klasik. Terlihat pula nilai indeks moran positif pada peubah Y dan sisaan model regresi klasik yang menunjukkan adanya autokorelasi positif.
+
+Sedangkan, nilai indeks moran pada peubah penjelas memiliki p-value > 0.05 maka gagal tolak H0 artinya tidak terdapat autokorelasi spasial peubah penjelas taraf nyata 5%.
+
+Oleh karenanya, untuk mencari model yang lebih baik, kita dapat melakukan uji LM (lagrange multiplier) untuk mengidentifikasi model dependensi spasial yang dapat digunakan pada kasus ini.
+
+### Uji Lagrange Multiplier
+
+```{r}
+model <- lm.LMtests(ols,listw=ww,zero.policy = TRUE, test=c("LMerr","RLMerr","LMlag","RLMlag","SARMA"))
+```
+
+```{r}
+summary(model)
+```
+Output menunjukkan bahwa hasil uji LM model SEM dan SARMA signifikan pada taraf 5%, sedangkan uji LM SAR signifikan pada taraf nyata 10%. Berdasarkan skema tersebut, maka kita dapat mencoba kandidat model SAR dan SEM.
+
+# Model Regresi Spasial
+
+## Model SAR
+
+```{r}
+sar <- lagsarlm(Y ~ X1 + X2 + X3 + X4 + X5_log, data = data_ipm, listw = ww)
+summary(sar, Nagelkerke = T)
+```
+
+Output di atas memperlihatkan bahwa koefisien Rho pada model SAR signifikan, dengan nilai AIC sebesar 868.55. Selain itu, terlihat pula hasil uji autokorelasi pada sisaan model memperlihatkan nilai p-value sebesar 0.9477, artinya tidak terdapat autokorelasi pada sisaan.
+
+### Uji Asumsi Model SAR
+
+#### Asumsi Kenormalan Sisaan
+
+H0 : galat model menyebar normal
+
+H1 : galat model tidak menyebar normal
+
+```{r}
+err.sar<-residuals(sar)
+ad.test(err.sar)
+```
+Karena p-value > 5%, maka tolak H0. Artinya sisaan menyebar normal.
+
+```{r}
+hist(err.sar)
+```
+```{r}
+qqnorm(err.sar,datax=T)
+qqline(rnorm(length(err.ols),mean(err.ols),sd(err.ols)),datax=T, col="red")
+```
+
+
+#### Asumsi Kehomogenan Ragam
+
+H0 : Ragam Sisaan Homogen
+
+H1 : Ragam Sisaan Tidak Homogen
+
+```{r}
+bptest.Sarlm(sar)
+```
+Karena p-value > 5%, maka gagal tolak H0. Artinya ragam sisaan homogen.
+
+#### Uji Kebebasan Sisaan
+
+H0: Tidak ada autokorelasi spasial
+
+H1: ada autokorelasi spasial
+
+```{r}
+moran.test(err.sar, ww, alternative="two.sided")
+```
+
+Karena p-value > 0.05, maka tolak H0 artinya tidak terdapat autokorelasi spasial pada sisaan model SAR.
+
+
+## Model SEM
+
+```{r}
+sem<-errorsarlm(Y ~ X1 + X2 + X3 + X4 + X5_log, data = data_ipm, listw = ww)
+summary(sem,  Nagelkerke = T)
+```
+Output di atas menunjukkan bahwa koefisien Lambda signifikan pada taraf nyata 5%. AIC model SEM adalah sebesar  869.33. Selanjutnya kita akan coba memeriksa sisaan model SEM ini.
+
+### Uji Asumsi Model SEM
+
+#### Asumsi Kenormalan Sisaan
+
+H0 : galat model menyebar normal
+
+H1 : galat model tidak menyebar normal
+
+Tolak H0 jika p-value < 0.05
+
+```{r}
+err.sem<-residuals(sem)
+ad.test(err.sem)
+```
+
+Karena p-value < 0.05, maka tolak H0. Artinya sisaan menyebar tidak menyebar normal.
+
+```{r}
+hist(err.sem)
+```
+
+```{r}
+qqnorm(err.sem,datax=T)
+qqline(rnorm(length(err.ols),mean(err.ols),sd(err.ols)),datax=T, col="red")
+```
+
+
+#### Asumsi Kehomogenan Ragam
+
+H0 : Ragam Sisaan Homogen
+
+H1 : Ragam Sisaan Tidak Homogen
+
+```{r}
+bptest.Sarlm(sem)
+```
+
+Karena p-value > 0.05, maka gagal tolak H0. Artinya ragam sisaan homogen.
+
+#### Asumsi Kebesaan Sisaan
+
+H0 : Tidak Ada Autokorelasi spasial
+
+H1 : Ada Autokorelasi spasial
+
+```{r}
+moran.test(err.sem, ww, alternative="two.sided")
+```
+
+Karena p-value > 0.05 maka gagal Tolak H0 artinya tidak terdapat autokorelasi spasial pada sisaan model SEM.
+
+# Goodness of Fits (Model Terbaik)
+
+```{r}
+df <- data.frame("Model" = c("OLS (Regresi KlasiK)","SAR","SEM"),
+           "AIC" = c(AIC(ols),AIC(sar), AIC(sem)))
+
+df
+```
+
+Berdasarkan output diatas, model SAR adalah model yang terbaik berdasarkan nilai AIC-nya. Hal ini juga sejalan dengan nilai rho yang signifikan (p-value 0.042). Model SAR ini juga telah memenuhi seluruh asumsi seperti normalitas, kebebasan, dan kehomogenan. 
+
+# Interpretasi Model SAR 
+
+```{r}
+sum <- summary(sar)
+sum
+```
+
+peubah yang signifikan yaitu X1,X4, dan X5_log
+
+```{r}
+# Spill over
+Im = impacts(sar, listw = ww)
+Im
+```
+
+```{r}
+# Efek Umpan Balik
+koef = sum$coefficients[-1]
+diref = Im$direct
+umbal = diref-koef
+cbind.data.frame(Koefisien=koef,EfekLangsung=diref,UmpanBalik=umbal)
+```
+
+Berikut ini adalah interpretasinya:
+
+**Peubah Penjelas X1**
+
+Pengaruh langsung dari peubah X1 (Rata-rata lama sekolah) adalah sebesar -1.070, artinya Jika rata-rata lama sekolah di wilayah-i meningkat satu satuan, maka rata-rata Y (persentase penduduk miskin) di wilayah tersebut akan menurun sebesar 1.070, jika peubah lainnya tetap.
+
+Pengaruh tidak langsung dari peubah X1 (Rata-rata lama sekolah) bernilai -0.475, artinya Jika rata-rata lama sekolah di wilayah-i meningkat satu satuan, maka rata-rata Y (persentase penduduk miskin) di wilayah tersebut akan menurun sebesar 0.475 persen, jika peubah lainnya tetap.
+
+Pengaruh total dari peubah X1 (Rata-rata lama sekolah) bernilai -1.546, artinya apabila peningkatan rata-rata lama sekolah terjadi di seluruh wilayah maka akan menurunkan persentase penduduk miskin diseluruh wilayah dengan rata-rata peningkatan sebesar 1.546. Efek umpan baliknya sebesar -0.010.
+
+**Peubah Penjelas X4**
+
+Pengaruh langsung dari peubah X4 (rumah tangga dengan akses sanitasi layak) adalah sebesar -0.054, artinya Jika persentase rumah tangga dengan akses sanitasi layak di wilayah-i meningkat satu satuan, maka rata-rata Y (persentase penduduk miskin) di wilayah tersebut akan menurun sebesar 0.054, jika peubah lainnya tetap.
+
+Pengaruh tidak langsung dari peubah X4 (rumah tangga dengan akses sanitasi layak) bernilai -0.024, artinya Jika persentase rumah tangga dengan akses sanitasi layak di wilayah-i meningkat satu satuan, maka rata-rata Y (persentase penduduk miskin) di wilayah tersebut akan menurun sebesar 0.024, jika peubah lainnya tetap.
+
+Pengaruh total dari peubah  X4 (rumah tangga dengan akses sanitasi layak) bernilai -0.079, artinya apabila peningkatan persentase rumah tangga dengan akses sanitasi layak terjadi di seluruh wilayah maka akan menurunkan persentase penduduk miskin diseluruh wilayah dengan rata-rata peningkatan sebesar 0.079. Efek umpan baliknya sebesar -0.0005.
+
+**Peubah Penjelas X5_log**
+
+Pengaruh langsung dari peubah log X5 (log PDRB) adalah sebesar -1.510, artinya Jika log PDRB di wilayah-i meningkat satu satuan, maka rata-rata Y (persentase penduduk miskin) di wilayah tersebut akan menurun sebesar 1.510, jika peubah lainnya tetap.
+
+Pengaruh tidak langsung dari peubah log X5 (log PDRB) bernilai -0.6707, artinya Jika log PDRB di wilayah-i meningkat satu satuan, maka rata-rata Y (persentase penduduk miskin) di wilayah tersebut akan menurun sebesar 0.6707, jika peubah lainnya tetap.
+
+Pengaruh total dari peubah  log X5 (log PDRB) bernilai -2.181, artinya apabila peningkatan log PDRB terjadi di seluruh wilayah maka akan menurunkan persentase penduduk miskin diseluruh wilayah dengan rata-rata peningkatan sebesar 2.181. Efek umpan baliknya sebesar -0.0144.
