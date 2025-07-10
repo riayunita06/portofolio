@@ -1,0 +1,407 @@
+---
+title: "Tugas Akhir Anreg"
+author: "Kelompok 10"
+date: "2024-04-19"
+output: rmdformats::readthedown
+---
+
+# Data
+
+## Inisialisasi Library
+
+```{r}
+library(readxl)
+library(dplyr)
+library(plotly)
+library(lmtest)
+library(car)
+library(randtests)
+library(nortest)
+library(MASS)
+library(olsrr)
+library(ggcorrplot)
+library(GGally)
+```
+
+## Import Data
+
+```{r}
+dt <- read_xlsx("D:/Semester 4/Analisis Regresi/DATA TUGAS AKHIR.xlsx", sheet="Data")
+dt
+```
+
+# Reduksi Variabel X
+
+## Eksplorasi Korelasi Data
+
+Hipotesis: H0 : Tidak ada korelasi antarpeubah H1 : Ada korelasi antarpeubah
+
+```{r}
+ggpairs(dt,
+        upper = list(continuous = wrap('cor', size = 2)),
+        title = "Matriks Scatterplot Data")
+```
+
+Dengan minimal ditandai oleh bintang satu (\*) yang berarti variabel X tersebut tolak H0 atau ada korelasi dengan Y, maka hanya X1, X2, X4, X6, X7, X8, X9, dan X12 yang mempunyai korelasi. Sedangkan variabel X3, X5, X10, dan X11 memiliki korelasi yang kecil dan telah terwakili oleh variabel X yang lainnya sehingga dapat dihilangkan untuk kemudian diperiksa model dan multikolinearitasnya.
+
+### Model Reduksi Hasil Korelasi
+
+```{r}
+model2 = lm(formula = Y ~ X1+X2+X4+X6+X7+X8+X9+X12, data = dt)
+summary(model2)
+```
+
+Diperoleh model sebagai berikut\
+$$
+\hat Y = 0.5806 - 0.7717X_1 - 0.9612X_2 + 0.4282X_4 - 0.1058X_6 - 2.572X_7 + 0.0009X_8 - 0.00005X_9 + 0.1318X_{12} + e
+$$
+```{r}
+ols_aic(model2)
+```
+
+## Pengecekan Multikolinearitas
+
+```{r}
+vif(model2)
+```
+```{r}
+model3 = lm(formula = Y ~ X1+X2+X4+X6+X7+X8+X9, data = dt)
+summary(model3)
+```
+
+```{r}
+vif(model3)
+```
+
+### Model Hasil Reduksi Multikolinearitas
+
+```{r}
+model4 = lm(formula = Y ~ X1+X2+X4+X6+X7+X9, data = dt)
+summary(model4)
+```
+
+```{r}
+vif(model4)
+```
+
+Diperoleh model sebagai berikut\
+$$
+\hat Y = 47,27 - 0.6125X_1 + 3.486X_2 + 0.8014X_4 - 0.1330X_6 - 2.103X_7 - 0.00002833
+$$
+--------------------------------------------------------------------
+
+# Pencilan, Titik Leverage, dan Amatan Berpengaruh
+
+## Perhitungan ri, ci, Hi, DFFITSi
+
+```{r}
+index <- c(1:22)
+ri <- studres(model4)
+ci <- cooks.distance(model4)
+DFFITSi <- dffits(model4)
+hi <- ols_hadi(model4)
+hii <- hatvalues(model4)
+hasil <- data.frame(index,ri,ci,DFFITSi,hi,hii); round(hasil,4)
+```
+
+## Plot ri, ci, Hi, DFFITSi, dan Potential Residual
+
+### Internally Studentized Residuals Plot (ri)
+
+```{r}
+ggplot(hasil) +
+  geom_point(aes(y = `ri`, x = `index`),
+             color="blue",size=2) +
+  ylab("ri") +
+  xlab("index") +
+  ggtitle("Plot ri") +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+### Cook Distance Plot (ci)
+
+```{r}
+ggplot(hasil) +
+  geom_point(aes(y = `ci`, x = `index`),
+             color="blue",size=2) +
+  ylab("ci") +
+  xlab("index") +
+  ggtitle("Plot ci") +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+### Difference in Fits Plot (DFFITSi)
+
+```{r}
+ggplot(hasil) +
+  geom_point(aes(y = `DFFITSi`, x = `index`),
+             color="blue",size=2) +
+  ylab("DFFITSi") +
+  xlab("index") +
+  ggtitle("Plot DFFITSi") +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+### Hadi's Influence Measure (Hi)
+
+```{r}
+ggplot(hasil) +
+  geom_point(aes(y = `hadi`, x = `index`),
+             color="blue",size=2) +
+  ylab("Hi") +
+  xlab("index") +
+  ggtitle("Plot Hi") +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+### Potential Residual Plot (P-R Plot)
+
+```{r}
+ggplot(hasil) +
+  geom_point(aes(y = `potential`, x = `residual`),
+             color="blue",size=2) +
+  ylab("potential") +
+  xlab("residual") +
+  ggtitle("P-R Plot") +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+## Pendeteksian Nilai Tidak Biasa
+
+### Pencilan atau Outlier
+
+```{r}
+for (i in 1:dim(hasil)[1]){
+  absri <- abs(hasil$ri)
+  pencilan <- which(absri > 2)
+}
+pencilan
+```
+
+Pencilan adalah titik amatan yang menjauh pada tren Y walau X nya masih berada pada selang. Dalam data tersebut terdapat satu titik observasi yang terdeteksi sebagai sebuah pencilan, yaitu amatan ke-21 dengan ri bernilai -2.6233 yang absolutnya lebih besar dari 2..
+
+### Titik Leverage
+
+```{r}
+titik_leverage <- vector("list", dim(hasil)[1])
+for (i in 1:dim(hasil)[1]) {
+  cutoff <- 2 * 7 / 22
+  titik_leverage[[i]] <- which(hii > cutoff)
+}
+leverages <- unlist(titik_leverage)
+titik_leverage <- sort(unique(leverages))
+titik_leverage
+```
+
+Titik leverage adalah nilai amatan yang X nya jauh lebih besar dari X lainnya dan terletak hampir dalam garis regresi tetapi juga menjauh. Terdapat satu titik observasi yang termasuk sebagai titik leverage pada data tersebut, yaitu amatan ke-22 dengan nilai hii 0.9741. Kedua titik ini memiliki nilai hii yang lebih besar dari 2\*p/n = 0,636, dengan p = 7 adalah banyaknya parameter dan n = 22 adalah banyaknya amatan.
+
+### Amatan Berpengaruh
+
+```{r}
+amatan_berpengaruh <- vector("list", dim(hasil)[1])
+for (i in 1:dim(hasil)[1]) {
+  cutoff <- 2 * sqrt((7 / 22))
+  amatan_berpengaruh[[i]] <- which(abs(DFFITSi) > cutoff)
+}
+berpengaruh <- unlist(amatan_berpengaruh)
+amatan_berpengaruh <- sort(unique(berpengaruh))
+amatan_berpengaruh
+```
+
+Amatan berpengaruh adalah nilai amatan yang memengaruhi hasil dugaan parameter regresi, R-square, dan uji hipotesis jika disisihkan. Hasil pada data tersebut menunjukkan bahwa amatan ke-10, 21, dan 22 termasuk sebagai amatan berpengaruh yang memiliki nilai DFFITSi -1.1963 dan 1,400. Absolut dari nilai tersebut lebih besar dari 2\*sqrt(p/n) = 1,128.
+
+```{r}
+#gambaran amatan berpengaruh dengan pencilan dan laverage
+ols_plot_resid_lev(model4)
+
+data1 <- dt[-c(21, 22),]
+data2 <- dt[-c(21),]
+data3 <- dt[-c(22),]
+
+model_berpengaruh1 <- lm(Y~X1+X2+X4+X6+X7+X9, data=data1)
+model_berpengaruh2 <- lm(Y~X1+X2+X4+X6+X7+X9, data=data2)
+model_berpengaruh3 <- lm(Y~X1+X2+X4+X6+X7+X9, data=data3)
+
+summary(model4)
+summary(model_berpengaruh1)
+summary(model_berpengaruh2)
+summary(model_berpengaruh3)
+
+
+```
+
+Tetep model terbaiknya saat data ke 21 dikeluarkan
+
+
+```{r}
+#pembentukan data baru tanpa amatan 9 dan 19
+dt2 <- subset(dt, select = -c(X3, X5, X8, X10, X11, X12))
+dt2 <- dt2[-c(21),]
+#pemodelan rlb terbaru
+model5 <- lm(Y~.,data= dt2)
+summary(model5)
+anova(model5)
+```
+```{r}
+ols_aic(model5)
+```
+
+# Eksplorasi Kondisi
+
+## Plot Sisaan Vs Y duga
+
+```{r}
+plot(model5,1) 
+```
+1.  Sisaan menyebar di sekitar 0, sehingga nilai harapan galat sama dengan nol\
+2.  Lebar pita sama untuk setiap nilai dugaan, sehingga ragam homogen\
+3.  Plot sisaan vs y duga tidak berpola, model pas
+
+```{r}
+plot(model5,2) 
+```
+
+## Plot Sisaan Vs Urutan
+
+```{r}
+plot(x = 1:dim(dt2)[1],
+     y = model5$residuals,
+     type = 'b', 
+     ylab = "Residuals",
+     xlab = "Observation")
+```
+
+## Kondisi Gaus Markov
+
+### 1. Nilai Harapan Sisaan sama dengan Nol
+
+H0: Nilai harapan sisaan sama dengan nol\
+H1: Nilai harapan sisaan tidak sama dengan nol
+
+```{r}
+t.test(model5$residuals,mu = 0,conf.level = 0.95)
+```
+
+Uji t.tes tersebut menunjukkan hasil p-value = 1 \> alpha = 0.05, maka tak tolak H0, nilai harapan sisaan sama dengan nol pada taraf nyata 5%. Asumsi terpenuhi.
+
+### 2. Ragam Sisaan Homogen
+
+$H0:var[e]=sigma2I$ (ragam sisan homogen)\
+$H1:var[e] != sigma2I$ (ragam siaan tidak homogen)
+
+```{r}
+bptest(model5)
+```
+
+Uji ini sering disebut dengan uji homokesdasitas yang dilakukan dengan yang dilakukan dengan uji Breusch-Pagan. Karena p-value = 0.5789 \> alpha = 0.05, maka tak tolak H0, ragam sisaan homogen pada taraf nyata 5%. Asumsi terpenuhi.
+
+### 3. Sisaan Saling Bebas
+
+$H0:E[ei,ej]=0$ (sisaan saling bebas/tidak ada autokorelasi)\
+$H1:E[ei,ej] != 0$ (sisaan tidak saling bebas/ada autokorelasi)
+
+```{r}
+dwtest(model5)
+```
+
+Uji ini sering disebut dengan uji autokorelasi yang dilakukan dengan Durbin watson. Karena p-value = 0.634 (pada DW test) \> alpha = 0.05, maka tak tolak H0, sisaan saling bebas pada taraf nyata 5%, sehingga asumsi terpenuhi.
+
+## Uji Formal Normalitas Sisaan
+
+$H_0 : N$ (sisaan menyebar Normal) $H_1 : N$ (sisaan tidak menyebar Normal)
+
+```{r}
+shapiro.test(model5$residuals)
+```
+
+```{r}
+bs <- ols_step_best_subset(model5)
+bs
+```
+
+```{r}
+null<-lm(Y~ 1, data=dt2) # 1 here means the intercept 
+full<-lm(Y~., data=dt2)
+ 
+step(full, scope=list(lower=null, upper=full),data=datanew, direction='backward', trace=0)
+step(null, scope=list(lower=null, upper=full),data=datanew, direction='forward', trace=0)
+step(null, scope=list(lower=null, upper=full),data=datanew, direction='both', trace=0)
+```
+
+```{r}
+modell1 <-  lm(Y~X1+X2+X4+X7, data = dt2)
+modell2 <- lm(Y~X1+X6, data = dt2)
+summary(modell1)$adj.r.squared
+summary(modell2)$adj.r.squared
+
+ols_aic(modell1)
+ols_aic(modell2)
+```
+
+```{r}
+model <- modell1
+summary(model)
+```
+
+```{r}
+summary(model)
+```
+## Plot Sisaan Vs Y duga
+
+```{r}
+plot(model,1) 
+```
+```{r}
+plot(model,2) 
+```
+
+## Plot Sisaan Vs Urutan
+
+```{r}
+plot(x = 1:dim(dt2)[1],
+     y = model$residuals,
+     type = 'b', 
+     ylab = "Residuals",
+     xlab = "Observation")
+```
+## Kondisi Gaus Markov
+
+### 1. Nilai Harapan Sisaan sama dengan Nol
+
+H0: Nilai harapan sisaan sama dengan nol\
+H1: Nilai harapan sisaan tidak sama dengan nol
+
+```{r}
+t.test(model$residuals,mu = 0,conf.level = 0.95)
+```
+
+### 2. Ragam Sisaan Homogen
+
+$H0:var[e]=sigma2I$ (ragam sisan homogen)\
+$H1:var[e] != sigma2I$ (ragam siaan tidak homogen)
+
+```{r}
+bptest(model)
+```
+
+### 3. Sisaan Saling Bebas
+
+$H0:E[ei,ej]=0$ (sisaan saling bebas/tidak ada autokorelasi)\
+$H1:E[ei,ej] != 0$ (sisaan tidak saling bebas/ada autokorelasi)
+
+```{r}
+dwtest(model)
+```
+
+## Uji Formal Normalitas Sisaan
+
+$H_0 : N$ (sisaan menyebar Normal) $H_1 : N$ (sisaan tidak menyebar Normal)
+
+```{r}
+shapiro.test(model$residuals)
+```
